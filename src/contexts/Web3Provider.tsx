@@ -38,7 +38,7 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
         const network = await provider.getNetwork();
         
         // 296 is Hedera Testnet
-        if (network.chainId !== 296n) {
+        if (network.chainId !== BigInt(296)) {
           (window as any).veloToast?.("Wrong Network: Please switch to Hedera Testnet to use the Velo Pilot.", "error");
           // Attempt to switch (optional)
         }
