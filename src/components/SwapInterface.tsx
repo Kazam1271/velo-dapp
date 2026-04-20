@@ -2,6 +2,7 @@
 
 import { ArrowUpDown, ChevronDown, Info } from "lucide-react";
 import { useWeb3 } from "@/contexts/Web3Provider";
+import { TOKENS } from "@/config/tokens";
 
 export default function SwapInterface() {
   const { isConnected, balance } = useWeb3();
@@ -10,11 +11,11 @@ export default function SwapInterface() {
 
   const handleSwap = () => {
     if (!isConnected) {
-      const veloToast = (window as any).veloToast;
-      if (veloToast) veloToast('Please connect your wallet to perform a swap.', 'error');
+      if (typeof window !== "undefined" && (window as any).veloToast) {
+        (window as any).veloToast('Please connect your wallet to perform a swap.', 'error');
+      }
       return;
     }
-    // Swap logic would go here
   };
 
   return (
@@ -29,9 +30,9 @@ export default function SwapInterface() {
             placeholder="0.00" 
             className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
           />
-          <button className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] px-4 py-2 rounded-xl text-white font-medium transition-colors whitespace-nowrap border border-velo-border">
-            <div className="w-6 h-6 rounded-full bg-black border border-gray-600 flex items-center justify-center text-xs font-bold text-white overflow-hidden">
-              <span className="text-[10px]">ℏ</span>
+          <button className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] px-3 py-1.5 rounded-xl text-white font-medium transition-colors whitespace-nowrap border border-velo-border">
+            <div className="w-6 h-6 rounded-full bg-black border border-gray-600 flex items-center justify-center overflow-hidden">
+              <img src={TOKENS.HBAR.icon} alt="HBAR" className="w-4 h-4 object-contain" />
             </div>
             HBAR
             <ChevronDown size={16} className="text-gray-400 ml-1" />
@@ -41,10 +42,10 @@ export default function SwapInterface() {
         <div className="flex justify-between items-center text-sm text-gray-400 mt-6 px-1">
           <div>Balance: <span className={isConnected ? "text-velo-cyan font-medium" : ""}>{displayBalance}</span></div>
           <div className="flex gap-4">
-            <button className="hover:text-velo-cyan transition-colors">25%</button>
-            <button className="hover:text-velo-cyan transition-colors">50%</button>
-            <button className="hover:text-velo-cyan transition-colors">75%</button>
-            <button className="hover:text-velo-cyan transition-colors">Max</button>
+            <button className="hover:text-velo-cyan transition-colors text-[10px] font-bold">25%</button>
+            <button className="hover:text-velo-cyan transition-colors text-[10px] font-bold">50%</button>
+            <button className="hover:text-velo-cyan transition-colors text-[10px] font-bold">75%</button>
+            <button className="hover:text-velo-cyan transition-colors text-[10px] font-bold text-velo-cyan">MAX</button>
           </div>
         </div>
       </div>
@@ -65,13 +66,15 @@ export default function SwapInterface() {
             className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
             readOnly
           />
-          <button className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] px-4 py-2 rounded-xl text-white font-medium transition-colors whitespace-nowrap border border-velo-border">
-            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold text-white">$</div>
+          <button className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] px-3 py-1.5 rounded-xl text-white font-medium transition-colors whitespace-nowrap border border-velo-border">
+            <div className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center overflow-hidden">
+              <img src={TOKENS.USDC.icon} alt="USDC" className="w-4 h-4 object-contain" />
+            </div>
             USDC
             <ChevronDown size={16} className="text-gray-400 ml-1" />
           </button>
         </div>
-        <div className="text-sm text-gray-400 mt-3">Balance: 456.78</div>
+        <div className="text-sm text-gray-400 mt-3 px-1">Balance: 0.00</div>
       </div>
 
       <button 

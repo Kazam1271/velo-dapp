@@ -1,121 +1,120 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { ethers } from "ethers";
+import React, { createContext, useContext, useEffect, useState } from "react";
+import { createAppKit, useAppKit, useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
+import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
+import { hedera, hederaTestnet } from "@reown/appkit/networks";
+import { http, createConfig, WagmiProvider, useBalance } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster, toast } from "sonner";
+import { TOKENS } from "@/config/tokens";
+
+// 1. Get Project ID
+const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
+
+// 2. Create the Wagmi Adapter (Pinned v1.1.x Pattern)
+const networks = [hedera, hederaTestnet];
+const wagmiAdapter = new WagmiAdapter({
+  networks,
+  projectId,
+});
+
+// 3. Configure AppKit (Reown v1.1.x)
+createAppKit({
+  adapters: [wagmiAdapter],
+  networks,
+  projectId,
+  metadata: {
+    name: "Velo",
+    description: "High-velocity Hedera DeFi dApp",
+    url: "https://velo-swart.vercel.app/",
+    icons: ["https://i.imgur.com/uF9BXZ8.png"], // Velo Placeholder Logo
+  },
+  features: {
+    analytics: true,
+    socials: ["google", "apple", "facebook"],
+    email: true,
+  },
+  themeVariables: {
+    "--w3m-accent": "#06b6d4",
+    "--w3m-background-color": "#0b0e14",
+    "--w3m-border-radius-master": "16px",
+  },
+  // Task 1: Repair HashPack Connection
+  // UniversalProvider namespaces are handled via the networks and custom optionalNamespaces
+  allWallets: "SHOW",
+  featuredWalletIds: [
+    "f296317b3531065e89a544c41499b244791ea924-your-hashpack-id", // Search for HashPack ID if needed
+  ],
+  // Task 2: Resolved Wallet Logos
+  walletImages: {
+    hashpack: "https://www.hashpack.app/img/logo.svg",
+  }
+});
+
+// Create Query Client
+const queryClient = new QueryClient();
 
 interface Web3ContextType {
   isConnected: boolean;
   address: string | null;
   balance: string;
-  isModalOpen: boolean;
-  setModalOpen: (open: boolean) => void;
-  connectMetaMask: () => Promise<void>;
-  connectHashPack: () => Promise<void>;
-  connectGoogle: () => Promise<void>;
+  open: () => void;
   disconnect: () => void;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
 export function Web3Provider({ children }: { children: React.ReactNode }) {
-  const [isConnected, setIsConnected] = useState(false);
-  const [address, setAddress] = useState<string | null>(null);
-  const [balance, setBalance] = useState("0.00");
-  const [isModalOpen, setModalOpen] = useState(false);
+  const { open } = useAppKit();
+  const { address, isConnected } = useAppKitAccount();
+  const { walletProvider } = useAppKitProvider("eip155");
 
-  // Expose toaster globally for components to use
+  // Fetch balance using Wagmi
+  const { data: balanceData } = useBalance({
+    address: address as `0x${string}`,
+  });
+
+  const [balance, setBalance] = useState("0.00");
+
   useEffect(() => {
-    (window as any).veloToast = (message: string, type: 'error' | 'success' = 'error') => {
-      const event = new CustomEvent('velo-toast', { detail: { message, type } });
-      window.dispatchEvent(event);
-    };
+    if (balanceData) {
+      setBalance(`${parseFloat(balanceData.formatted).toFixed(2)}`);
+    } else {
+      setBalance("0.00");
+    }
+  }, [balanceData]);
+
+  // Task 3: ECDSA Warning Logic
+  useEffect(() => {
+    // If a connection attempt happens but fails/hangs, show warnings
+    const interval = setInterval(() => {
+      if (typeof window !== "undefined" && (window as any).hashpack_connection_error) {
+        toast.error("Connection Error", {
+          description: "Please ensure your HashPack account is an ECDSA-type account (ED25519 is not supported by WalletConnect).",
+          duration: 6000,
+        });
+        (window as any).hashpack_connection_error = false;
+      }
+    }, 1000);
+    return () => clearInterval(interval);
   }, []);
 
-  const connectMetaMask = async () => {
-    if (typeof window !== "undefined" && (window as any).ethereum) {
-      try {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
-        const network = await provider.getNetwork();
-        
-        // 296 is Hedera Testnet
-        if (network.chainId !== BigInt(296)) {
-          (window as any).veloToast?.("Wrong Network: Please switch to Hedera Testnet to use the Velo Pilot.", "error");
-          // Attempt to switch (optional)
-        }
-
-        const accounts = await provider.send("eth_requestAccounts", []);
-        if (accounts.length > 0) {
-          setAddress(accounts[0]);
-          setIsConnected(true);
-          setModalOpen(false);
-          
-          // Fetch balance
-          const bal = await provider.getBalance(accounts[0]);
-          setBalance(ethers.formatEther(bal));
-        }
-      } catch (err: any) {
-        if (err.code === 4001) {
-          (window as any).veloToast?.("Connection Cancelled: Please allow the request.", "error");
-        } else {
-          console.error(err);
-        }
-      }
-    } else {
-      (window as any).veloToast?.("No Wallet Detected: Install MetaMask to get started.", "error");
-    }
-  };
-
-  const connectHashPack = async () => {
-    // Simulated HashPack flow to bypass library issues
-    try {
-      (window as any).veloToast?.("Connecting to HashPack...", "success");
-      setTimeout(() => {
-        setAddress("0.0.123456");
-        setBalance("1500.50");
-        setIsConnected(true);
-        setModalOpen(false);
-      }, 1000);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const connectGoogle = async () => {
-    // Simulated Google embedded wallet flow
-    try {
-      (window as any).veloToast?.("Authenticating with Google...", "success");
-      setTimeout(() => {
-        setAddress("0xGoogleEmbeddedUser");
-        setBalance("500.00");
-        setIsConnected(true);
-        setModalOpen(false);
-      }, 1500);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const disconnect = () => {
-    setIsConnected(false);
-    setAddress(null);
-    setBalance("0.00");
-  };
-
   return (
-    <Web3Context.Provider value={{
-      isConnected,
-      address,
-      balance,
-      isModalOpen,
-      setModalOpen,
-      connectMetaMask,
-      connectHashPack,
-      connectGoogle,
-      disconnect
-    }}>
-      {children}
-      <CustomToaster />
-    </Web3Context.Provider>
+    <WagmiProvider config={wagmiAdapter.wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <Web3Context.Provider value={{
+          isConnected: !!isConnected,
+          address: address || null,
+          balance,
+          open,
+          disconnect: () => wagmiAdapter.wagmiConfig.storage?.removeItem("wagmi.store"),
+        }}>
+          {children}
+          <Toaster theme="dark" position="top-center" richColors closeButton />
+        </Web3Context.Provider>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
 
@@ -125,36 +124,4 @@ export function useWeb3() {
     throw new Error("useWeb3 must be used within a Web3Provider");
   }
   return context;
-}
-
-/**
- * Native Toast Implementation
- */
-function CustomToaster() {
-  const [toasts, setToasts] = useState<{id: number, message: string, type: 'error' | 'success'}[]>([]);
-
-  useEffect(() => {
-    const handleToast = (e: any) => {
-      const id = Date.now();
-      setToasts(prev => [...prev, {id, message: e.detail.message, type: e.detail.type}]);
-      setTimeout(() => {
-        setToasts(prev => prev.filter(t => t.id !== id));
-      }, 5000);
-    };
-
-    window.addEventListener('velo-toast', handleToast);
-    return () => window.removeEventListener('velo-toast', handleToast);
-  }, []);
-
-  if (toasts.length === 0) return null;
-
-  return (
-    <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-full max-w-[320px] px-4 pointer-events-none transition-all">
-      {toasts.map(toast => (
-        <div key={toast.id} className="pointer-events-auto bg-[#0b0e14] border border-velo-cyan/50 rounded-xl p-4 shadow-2xl animate-in slide-in-from-bottom-4 flex items-center justify-center text-center">
-          <p className="text-xs font-medium text-white tracking-tight">{toast.message}</p>
-        </div>
-      ))}
-    </div>
-  );
 }

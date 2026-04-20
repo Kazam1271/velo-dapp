@@ -6,7 +6,7 @@ import { useWeb3 } from "@/contexts/Web3Provider";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
-  const { address, isConnected, setModalOpen } = useWeb3();
+  const { address, isConnected, open } = useWeb3();
 
   useEffect(() => {
     const fetchPrice = async () => {
@@ -30,7 +30,7 @@ export default function Header() {
   }, []);
 
   const handleConnect = () => {
-    setModalOpen(true);
+    open();
   };
 
   // Simple format for EVM -> 0x12..34abcd
