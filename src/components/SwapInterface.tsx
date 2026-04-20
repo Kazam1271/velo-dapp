@@ -1,19 +1,12 @@
 "use client";
 
 import { ArrowUpDown, ChevronDown, Info } from "lucide-react";
-import { useAccount, useBalance } from "wagmi";
-import { formatUnits } from "viem";
+import { useWeb3 } from "@/contexts/Web3Provider";
 
 export default function SwapInterface() {
-  const { address, isConnected } = useAccount();
-  
-  const { data: balance } = useBalance({
-    address: address as `0x${string}` | undefined,
-  });
+  const { isConnected, balance } = useWeb3();
 
-  const displayBalance = isConnected && balance 
-    ? parseFloat(formatUnits(balance.value, balance.decimals)).toFixed(2)
-    : "0.00";
+  const displayBalance = isConnected ? balance : "0.00";
 
   const handleSwap = () => {
     if (!isConnected) {

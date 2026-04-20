@@ -2,15 +2,11 @@
 
 import { Zap, Wallet, AlertCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useWeb3Modal } from "@web3modal/wagmi/react";
-import { useAccount, useSwitchChain, useConnect } from "wagmi";
+import { useWeb3 } from "@/contexts/Web3Provider";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
-  const { open } = useWeb3Modal();
-  const { address, isConnected, chain } = useAccount();
-  const { switchChain } = useSwitchChain();
-  const { connectors } = useConnect();
+  const { address, isConnected, setModalOpen } = useWeb3();
 
   useEffect(() => {
     const fetchPrice = async () => {
@@ -33,34 +29,8 @@ export default function Header() {
     return () => clearInterval(interval);
   }, []);
 
-  // Monitor for Wrong Network (Hedera Testnet ID is 296)
-  useEffect(() => {
-    if (isConnected && chain && chain.id !== 296) {
-      const veloToast = (window as any).veloToast;
-      if (veloToast) {
-        veloToast('Wrong Network: Please switch to Hedera Testnet to use the Velo Pilot.', 'error');
-      }
-    }
-  }, [isConnected, chain]);
-
-  const handleConnect = async () => {
-    const veloToast = (window as any).veloToast;
-
-    // Check for Extension Not Found
-    const hasWallets = connectors.some(c => c.id === 'injected' || c.id === 'metaMask' || c.id === 'hashpack');
-    if (!hasWallets) {
-      if (veloToast) veloToast('No Wallet Detected: Install HashPack or MetaMask to get started.', 'error');
-      return;
-    }
-
-    try {
-      await open();
-    } catch (error: any) {
-      // Handle User Rejected
-      if (error.message?.includes('rejected') || error.message?.includes('User rejected')) {
-        if (veloToast) veloToast('Connection Cancelled: Please allow the request to access Velo features.', 'error');
-      }
-    }
+  const handleConnect = () => {
+    setModalOpen(true);
   };
 
   // Simple format for EVM -> 0x12..34abcd
@@ -71,20 +41,6 @@ export default function Header() {
 
   return (
     <header className="flex flex-col w-full sticky top-0 z-50">
-      {/* Wrong Network Banner (Persistent if wrong) */}
-      {isConnected && chain && chain.id !== 296 && (
-        <div className="bg-red-500/10 border-b border-red-500/20 py-2 px-4 flex items-center justify-center gap-3 backdrop-blur-sm">
-          <AlertCircle size={14} className="text-red-500" />
-          <span className="text-[10px] uppercase font-bold tracking-widest text-red-500">Wrong Network detected</span>
-          <button 
-            onClick={() => switchChain({ chainId: 296 })}
-            className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-bold hover:bg-red-600 transition-colors"
-          >
-            Switch to Testnet
-          </button>
-        </div>
-      )}
-
       <div className="flex items-center justify-between px-4 py-4 border-b border-velo-border bg-velo-bg/80 backdrop-blur-md">
         <div className="flex items-center gap-2">
           <div className="bg-velo-cyan text-black p-1.5 rounded-full glow-cyan">

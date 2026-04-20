@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { Web3Provider } from "@/contexts/Web3Provider";
+import ConnectModal from "@/components/ConnectModal";
 
 export const metadata: Metadata = {
   title: "Velo",
@@ -20,6 +21,7 @@ export default function RootLayout({
       <body className="min-h-full flex flex-col font-sans">
         <Web3Provider>
           {children}
+          <ConnectModal />
         </Web3Provider>
       </body>
     </html>
