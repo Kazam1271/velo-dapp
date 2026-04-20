@@ -1,6 +1,29 @@
+"use client";
+
 import { ArrowUpDown, ChevronDown, Info } from "lucide-react";
+import { useAccount, useBalance } from "wagmi";
+import { formatUnits } from "viem";
 
 export default function SwapInterface() {
+  const { address, isConnected } = useAccount();
+  
+  const { data: balance } = useBalance({
+    address: address as `0x${string}` | undefined,
+  });
+
+  const displayBalance = isConnected && balance 
+    ? parseFloat(formatUnits(balance.value, balance.decimals)).toFixed(2)
+    : "0.00";
+
+  const handleSwap = () => {
+    if (!isConnected) {
+      const veloToast = (window as any).veloToast;
+      if (veloToast) veloToast('Please connect your wallet to perform a swap.', 'error');
+      return;
+    }
+    // Swap logic would go here
+  };
+
   return (
     <div className="bg-velo-card border border-velo-border rounded-3xl p-4 sm:p-6 shadow-2xl w-full max-w-md mx-auto mt-8 relative">
       
@@ -22,11 +45,14 @@ export default function SwapInterface() {
           </button>
         </div>
         
-        <div className="flex justify-between text-sm text-gray-400 mt-6 px-1">
-          <button className="hover:text-velo-cyan transition-colors">25%</button>
-          <button className="hover:text-velo-cyan transition-colors">50%</button>
-          <button className="hover:text-velo-cyan transition-colors">75%</button>
-          <button className="hover:text-velo-cyan transition-colors">Max</button>
+        <div className="flex justify-between items-center text-sm text-gray-400 mt-6 px-1">
+          <div>Balance: <span className={isConnected ? "text-velo-cyan font-medium" : ""}>{displayBalance}</span></div>
+          <div className="flex gap-4">
+            <button className="hover:text-velo-cyan transition-colors">25%</button>
+            <button className="hover:text-velo-cyan transition-colors">50%</button>
+            <button className="hover:text-velo-cyan transition-colors">75%</button>
+            <button className="hover:text-velo-cyan transition-colors">Max</button>
+          </div>
         </div>
       </div>
 
@@ -55,9 +81,17 @@ export default function SwapInterface() {
         <div className="text-sm text-gray-400 mt-3">Balance: 456.78</div>
       </div>
 
-      <button className="w-full bg-velo-cyan hover:bg-cyan-400 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6">
+      <button 
+        onClick={handleSwap}
+        className="w-full bg-velo-cyan hover:bg-cyan-400 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6"
+      >
         INSTANT SWAP
       </button>
+
+      <div className="text-center text-[10px] text-gray-500 mb-6 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
+        <Info size={14} className="text-velo-cyan shrink-0" />
+        <span className="leading-tight">Please ensure you are using an <span className="text-velo-cyan font-bold">ECDSA-type</span> account for full compatibility with Velo.</span>
+      </div>
 
       <div className="flex justify-between items-center text-sm text-gray-400">
         <div className="flex items-center gap-1.5">
