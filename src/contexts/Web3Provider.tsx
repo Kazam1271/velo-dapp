@@ -22,7 +22,7 @@ const wagmiAdapter = new WagmiAdapter({
 // 3. Configure AppKit (Reown v1.1.x)
 createAppKit({
   adapters: [wagmiAdapter],
-  networks,
+  networks: networks as [any, ...any[]],
   projectId,
   metadata: {
     name: "Velo",
