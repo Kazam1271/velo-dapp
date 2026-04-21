@@ -37,7 +37,6 @@ createAppKit({
   },
   themeVariables: {
     "--w3m-accent": "#06b6d4",
-    "--w3m-background-color": "#0b0e14",
     "--w3m-border-radius-master": "16px",
   },
   // Task 1: Repair HashPack Connection
