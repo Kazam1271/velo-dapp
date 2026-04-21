@@ -45,10 +45,6 @@ createAppKit({
   featuredWalletIds: [
     "f296317b3531065e89a544c41499b244791ea924-your-hashpack-id", // Search for HashPack ID if needed
   ],
-  // Task 2: Resolved Wallet Logos
-  walletImages: {
-    hashpack: "https://www.hashpack.app/img/logo.svg",
-  }
 });
 
 // Create Query Client
