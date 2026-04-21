@@ -4,10 +4,9 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { createAppKit, useAppKit, useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { hedera, hederaTestnet } from "@reown/appkit/networks";
-import { http, createConfig, WagmiProvider, useBalance } from "wagmi";
+import { WagmiProvider, useBalance } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
-import { TOKENS } from "@/config/tokens";
 
 // 1. Get Project ID
 const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
@@ -28,7 +27,7 @@ createAppKit({
     name: "Velo",
     description: "High-velocity Hedera DeFi dApp",
     url: "https://velo-swart.vercel.app/",
-    icons: ["https://i.imgur.com/uF9BXZ8.png"], // Velo Placeholder Logo
+    icons: ["https://i.imgur.com/uF9BXZ8.png"],
   },
   features: {
     analytics: true,
@@ -39,12 +38,7 @@ createAppKit({
     "--w3m-accent": "#06b6d4",
     "--w3m-border-radius-master": "16px",
   },
-  // Task 1: Repair HashPack Connection
-  // UniversalProvider namespaces are handled via the networks and custom optionalNamespaces
   allWallets: "SHOW",
-  featuredWalletIds: [
-    "f296317b3531065e89a544c41499b244791ea924-your-hashpack-id", // Search for HashPack ID if needed
-  ],
 });
 
 // Create Query Client
@@ -60,29 +54,43 @@ interface Web3ContextType {
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 
-export function Web3Provider({ children }: { children: React.ReactNode }) {
-  const { open } = useAppKit();
-  const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider("eip155");
-
-  // Fetch balance using Wagmi
+/**
+ * Inner component to handle Wagmi hooks correctly within a Provider context
+ */
+function BalanceWatcher({ 
+  onBalanceUpdate, 
+  address, 
+  isConnected 
+}: { 
+  onBalanceUpdate: (bal: string) => void, 
+  address: string | undefined, 
+  isConnected: boolean 
+}) {
   const { data: balanceData } = useBalance({
-    address: address as `0x${string}`,
+    address: isConnected ? (address as `0x${string}`) : undefined,
   });
-
-  const [balance, setBalance] = useState("0.00");
 
   useEffect(() => {
     if (balanceData) {
-      setBalance(`${parseFloat(balanceData.formatted).toFixed(2)}`);
+      onBalanceUpdate(`${parseFloat(balanceData.formatted).toFixed(2)}`);
     } else {
-      setBalance("0.00");
+      onBalanceUpdate("0.00");
     }
-  }, [balanceData]);
+  }, [balanceData, onBalanceUpdate]);
+
+  return null;
+}
+
+export function Web3Provider({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const { open } = useAppKit();
+  const { address, isConnected } = useAppKitAccount();
+  const [balance, setBalance] = useState("0.00");
 
   // Task 3: ECDSA Warning Logic
   useEffect(() => {
-    // If a connection attempt happens but fails/hangs, show warnings
     const interval = setInterval(() => {
       if (typeof window !== "undefined" && (window as any).hashpack_connection_error) {
         toast.error("Connection Error", {
@@ -95,9 +103,16 @@ export function Web3Provider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
+  if (!mounted) return null;
+
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig}>
       <QueryClientProvider client={queryClient}>
+        <BalanceWatcher 
+          address={address} 
+          isConnected={!!isConnected} 
+          onBalanceUpdate={setBalance} 
+        />
         <Web3Context.Provider value={{
           isConnected: !!isConnected,
           address: address || null,
