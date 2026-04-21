@@ -1,21 +1,33 @@
 "use client";
 
-import { Zap, Wallet, Info } from "lucide-react";
+import { Zap, Wallet, Info, LogOut, ShieldCheck, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useWeb3 } from "@/contexts/Web3Provider";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
-  const tooltipRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { address, isConnected, open } = useWeb3();
+  const {
+    address,
+    isConnected, // fully connected + verified
+    isWalletLinked, // wallet is connected but maybe not yet verified
+    isSessionVerified,
+    balance,
+    open,
+    disconnect,
+    verifySession,
+  } = useWeb3();
+
   const { hederaAccountId, isHollow, isLoading, resolved } = useHederaAccount(
-    isConnected ? address : null
+    isWalletLinked ? address : null
   );
 
-  // Fetch live HBAR price
+  // ── Fetch live HBAR price ──────────────────────────────────
   useEffect(() => {
     const fetchPrice = async () => {
       try {
@@ -38,10 +50,14 @@ export default function Header() {
     return () => clearInterval(interval);
   }, []);
 
-  // Close tooltip on outside click
+  // ── Close dropdown / tooltip on outside click ──────────────
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (tooltipRef.current && !tooltipRef.current.contains(e.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setShowDropdown(false);
         setShowTooltip(false);
       }
     };
@@ -49,33 +65,74 @@ export default function Header() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  /**
-   * Returns the display label for the connect button:
-   * - Disconnected          → "Connect"
-   * - Loading ID            → shimmer / truncated 0x
-   * - Native ID found       → "0.0.81..." (truncated)
-   * - Hollow / not on chain → truncated 0x
-   */
-  const buttonLabel = (): React.ReactNode => {
-    if (!isConnected || !address) return "Connect";
+  // ── Copy address helper ────────────────────────────────────
+  const copyAddress = () => {
+    const toCopy = hederaAccountId || address;
+    if (toCopy) {
+      navigator.clipboard.writeText(toCopy);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
+  // ── Truncate helpers ───────────────────────────────────────
+  const truncateHederaId = (id: string) => {
+    const parts = id.split(".");
+    const num = parts[2] ?? "";
+    const truncated = num.length > 6 ? `${num.slice(0, 6)}…` : num;
+    return `${parts[0]}.${parts[1]}.${truncated}`;
+  };
+
+  const truncateEvmAddress = (addr: string) =>
+    `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+
+  // ── Build button content ───────────────────────────────────
+  const buttonContent = (): React.ReactNode => {
+    // State 1: Not connected at all
+    if (!isWalletLinked || !address) return "Connect";
+
+    // State 2: Wallet linked but NOT yet verified
+    if (!isSessionVerified) {
+      return (
+        <span className="flex items-center gap-1.5">
+          <ShieldCheck size={13} className="text-amber-400 shrink-0" />
+          <span className="text-amber-400">Verify</span>
+        </span>
+      );
+    }
+
+    // State 3: Fully verified — show shimmer while resolving
     if (isLoading || !resolved) {
-      // Shimmer animation while loading
       return (
         <span className="inline-block w-20 h-3.5 rounded bg-cyan-900/60 animate-pulse" />
       );
     }
 
+    // State 4: Native Hedera ID resolved
     if (hederaAccountId) {
-      // Truncate "0.0.12345678" → "0.0.1234..." keeping the prefix readable
-      const parts = hederaAccountId.split(".");
-      const num = parts[2] ?? "";
-      const truncated = num.length > 4 ? `${num.slice(0, 4)}...` : num;
-      return `${parts[0]}.${parts[1]}.${truncated}`;
+      return truncateHederaId(hederaAccountId);
     }
 
-    // Fallback: truncated EVM address
-    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+    // State 5: Fallback (hollow or lookup failed) — EVM address
+    return truncateEvmAddress(address);
+  };
+
+  // ── Click handler for the main button ──────────────────────
+  const handleButtonClick = () => {
+    if (!isWalletLinked) {
+      // Not connected — open AppKit connect modal
+      open();
+      return;
+    }
+
+    if (!isSessionVerified) {
+      // Wallet connected but not verified — approve session
+      verifySession();
+      return;
+    }
+
+    // Already verified — toggle the account dropdown
+    setShowDropdown((prev) => !prev);
   };
 
   const isHollowAccount = isConnected && resolved && !hederaAccountId && isHollow;
@@ -88,7 +145,9 @@ export default function Header() {
           <div className="bg-velo-cyan text-black p-1.5 rounded-full glow-cyan">
             <Zap size={16} fill="currentColor" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight">Velo</span>
+          <span className="text-xl font-bold text-white tracking-tight">
+            Velo
+          </span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -96,44 +155,116 @@ export default function Header() {
           <div className="hidden sm:flex items-center gap-2 text-xs text-gray-400 bg-velo-card px-3 py-1.5 rounded-full border border-velo-border">
             <span className="w-2 h-2 rounded-full bg-velo-green glow-green" />
             Hedera Testnet{" "}
-            <span className="text-velo-green font-medium">{hbarPrice || "..."}</span>
+            <span className="text-velo-green font-medium">
+              {hbarPrice || "…"}
+            </span>
           </div>
 
-          {/* Connect / Account Button */}
-          <div className="relative flex items-center gap-1.5" ref={tooltipRef}>
+          {/* ─── Account Area ─── */}
+          <div className="relative" ref={dropdownRef}>
             <button
               id="connect-wallet-btn"
-              onClick={open}
-              className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[180px]
-                ${isConnected
-                  ? "bg-velo-card border border-velo-cyan text-velo-cyan hover:bg-cyan-950"
-                  : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
+              onClick={handleButtonClick}
+              className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[200px]
+                ${
+                  isConnected
+                    ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
+                    : isWalletLinked && !isSessionVerified
+                    ? "bg-amber-500/10 border border-amber-400/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
+                    : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
                 }`}
             >
               <Wallet size={16} className="shrink-0" />
-              <span className="truncate">{buttonLabel()}</span>
+              <span className="truncate">{buttonContent()}</span>
+              {isConnected && (
+                <ChevronDown
+                  size={14}
+                  className={`shrink-0 transition-transform ${
+                    showDropdown ? "rotate-180" : ""
+                  }`}
+                />
+              )}
             </button>
 
-            {/* Hollow account info icon + tooltip */}
+            {/* Hollow account warning badge */}
             {isHollowAccount && (
               <button
                 id="hollow-account-info-btn"
                 onClick={() => setShowTooltip((v) => !v)}
-                className="text-amber-400 hover:text-amber-300 transition-colors"
+                className="absolute -right-5 top-1/2 -translate-y-1/2 text-amber-400 hover:text-amber-300 transition-colors"
                 aria-label="Hollow account info"
               >
-                <Info size={15} />
+                <Info size={14} />
               </button>
             )}
 
-            {/* Tooltip panel */}
+            {/* Hollow tooltip */}
             {showTooltip && isHollowAccount && (
               <div className="absolute top-full right-0 mt-2 w-64 bg-[#0f1420] border border-amber-500/40 rounded-xl p-3 shadow-2xl z-50 text-xs text-gray-300 leading-relaxed">
-                <p className="font-semibold text-amber-400 mb-1">New Account Detected</p>
-                <p>
-                  Send <span className="text-velo-cyan font-medium">HBAR</span> to this address to
-                  initialize your native Hedera ID (0.0.x) and unlock all features.
+                <p className="font-semibold text-amber-400 mb-1">
+                  New Account Detected
                 </p>
+                <p>
+                  Send{" "}
+                  <span className="text-velo-cyan font-medium">HBAR</span> to
+                  this address to initialize your native Hedera ID (0.0.x) and
+                  unlock all features.
+                </p>
+              </div>
+            )}
+
+            {/* ─── Account Dropdown ─── */}
+            {showDropdown && isConnected && (
+              <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2">
+                {/* Account id */}
+                <div className="px-4 pt-4 pb-2">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
+                    Account
+                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-mono text-velo-cyan">
+                      {hederaAccountId || (address ? truncateEvmAddress(address) : "—")}
+                    </span>
+                    <button
+                      onClick={copyAddress}
+                      className="text-gray-400 hover:text-white transition-colors p-1"
+                      aria-label="Copy address"
+                    >
+                      {copied ? (
+                        <Check size={13} className="text-velo-green" />
+                      ) : (
+                        <Copy size={13} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Balance */}
+                <div className="px-4 pb-3">
+                  <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-0.5">
+                    Balance
+                  </p>
+                  <p className="text-sm font-medium text-white">
+                    {balance}{" "}
+                    <span className="text-gray-500 text-xs">HBAR</span>
+                  </p>
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-velo-border" />
+
+                {/* Disconnect button */}
+                <button
+                  id="disconnect-btn"
+                  onClick={() => {
+                    setShowDropdown(false);
+                    disconnect();
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  <LogOut size={15} />
+                  Disconnect
+                </button>
               </div>
             )}
           </div>
