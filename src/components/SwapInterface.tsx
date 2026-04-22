@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, ChevronDown, Info, Search, X, TrendingUp, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { useWeb3 } from "@/contexts/Web3Provider";
+import { useWeb3, modal } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -265,8 +265,7 @@ export default function SwapInterface() {
 
   const { connector, walletInterface } = useWeb3();
   const { data: walletClient } = useWalletClient();
-
-  // (Removed executeHederaTx in favor of native executeWithSigner)
+  const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 
   // Debug: Monitor Wagmi lifecycle
   useEffect(() => {
@@ -287,7 +286,6 @@ export default function SwapInterface() {
       console.warn("Association blocked", { isConnected, address, isAssociating, hederaAccountId });
       return;
     }
-
     try {
       console.log(`[Associate] Constructing Native Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
       
@@ -295,10 +293,7 @@ export default function SwapInterface() {
         .setAccountId(AccountId.fromString(hederaAccountId!))
         .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
 
-      const signer = await walletInterface?.getSigner();
-      if (!signer) throw new Error("Signer not available");
-
-      await tx.executeWithSigner(signer);
+      await executeNativeTransaction(tx);
       
       toast.success("Association Sent", {
         description: "Checking Mirror Node status...",
@@ -309,6 +304,33 @@ export default function SwapInterface() {
     } catch (err: any) {
       toast.error("Association Failed", { description: err.message });
     }
+  };
+
+  // ── Native Execution Helper ────────────────────────────────
+  const executeNativeTransaction = async (transaction: any) => {
+    // 1. Get the Provider from AppKit
+    const universalProvider = await (modal as any).getProvider();
+    if (!universalProvider) throw new Error("No provider available - is the wallet connected?");
+
+    // 2. Get Session Data
+    const session = universalProvider.session;
+    const topic = session?.topic;
+    if (!topic || !hederaAccountId) throw new Error("No active session found.");
+
+    // 3. Initialize the DAppSigner
+    // This object bridges Reown/WalletConnect directly to the Hedera SDK
+    const signer = new DAppSigner(
+      AccountId.fromString(hederaAccountId),
+      universalProvider.client,
+      topic,
+      networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+    );
+
+    // 4. Execute with the Signer
+    // This triggers the "Smart Contract Execute" or "Associate" popup in HashPack
+    await transaction.freezeWithSigner(signer);
+    const response = await transaction.executeWithSigner(signer);
+    return response;
   };
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
@@ -335,10 +357,7 @@ export default function SwapInterface() {
           .setAccountId(AccountId.fromString(hederaAccountId))
           .setTokenIds([TokenId.fromString("0.0.8725045")]);
 
-        const signer = await walletInterface?.getSigner();
-        if (!signer) throw new Error("Signer not available");
-
-        await associateTx.executeWithSigner(signer);
+        await executeNativeTransaction(associateTx);
         
         toast.loading("Association confirmed. Executing claim...", { id: toastId });
       } else {
@@ -511,10 +530,7 @@ export default function SwapInterface() {
           .addTokenTransfer(payToken.tokenId, AccountId.fromString(treasuryId), tinyAmount);
       }
 
-      const signer = await walletInterface?.getSigner();
-      if (!signer) throw new Error("Signer not available");
-
-      const result = await tx.executeWithSigner(signer);
+      const result = await executeNativeTransaction(tx);
       const hash = result?.transactionId?.toString() || (result as any)?.transactionHash || (result as any)?.hash; 
 
       toast.info("Payment Confirmed", {

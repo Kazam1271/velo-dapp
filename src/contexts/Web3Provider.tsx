@@ -25,7 +25,7 @@ const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 // ─────────────────────────────────────────────────────────────────
 // 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
-const modal = createAppKit({
+export const modal = createAppKit({
   adapters: [wagmiAdapter],
   networks: networks as [any, ...any[]],
   projectId,
