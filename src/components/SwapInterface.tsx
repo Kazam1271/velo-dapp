@@ -19,8 +19,10 @@ import {
   TokenId, 
   Hbar, 
   Transaction,
-  TransactionId
+  TransactionId,
+  LedgerId
 } from "@hiero-ledger/sdk";
+import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 
 // ─────────────────────────────────────────────────────────────────
 // Constants & ABI
