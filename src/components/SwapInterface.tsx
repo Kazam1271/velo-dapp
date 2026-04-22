@@ -495,7 +495,7 @@ export default function SwapInterface() {
       if (!signer) throw new Error("Signer not available");
 
       const result = await tx.executeWithSigner(signer);
-      const hash = result?.transactionHash || result?.hash || result; 
+      const hash = result?.transactionId?.toString() || (result as any)?.transactionHash || (result as any)?.hash; 
 
       toast.info("Payment Confirmed", {
         description: `Initiating ${recvToken.symbol} fulfillment...`,
