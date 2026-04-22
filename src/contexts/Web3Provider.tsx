@@ -14,7 +14,8 @@ import { useHederaBalance } from "@/hooks/useHederaBalance";
 // 1. Configuration Constants
 // ─────────────────────────────────────────────────────────────────
 const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
-const networks = [hedera, hederaTestnet];
+const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
+const networks = networkType === "mainnet" ? [hedera, hederaTestnet] : [hederaTestnet];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
 
 const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
