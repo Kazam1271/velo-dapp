@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Wallet, Info, LogOut, ShieldCheck, ChevronDown, Copy, Check } from "lucide-react";
+import { Zap, Wallet, Info, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useWeb3 } from "@/contexts/Web3Provider";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
@@ -12,19 +12,16 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const {
-    address,
-    isConnected, // fully connected + verified
-    isWalletLinked, // wallet is connected but maybe not yet verified
-    isSessionVerified,
-    balance,
-    open,
-    disconnect,
-    verifySession,
-  } = useWeb3();
+  const { address, isConnected, balance, open, disconnect } = useWeb3();
 
+  // Diagnostic Log
+  useEffect(() => {
+    console.log(`[Header] Render State - isConnected: ${isConnected}, address: ${address || "null"}`);
+  }, [isConnected, address]);
+
+  // Start Mirror Node lookup as soon as wallet is connected
   const { hederaAccountId, isHollow, isLoading, resolved } = useHederaAccount(
-    isWalletLinked ? address : null
+    isConnected ? address : null
   );
 
   // ── Fetch live HBAR price ──────────────────────────────────
@@ -86,52 +83,37 @@ export default function Header() {
   const truncateEvmAddress = (addr: string) =>
     `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 
-  // ── Build button content ───────────────────────────────────
-  const buttonContent = (): React.ReactNode => {
-    // State 1: Not connected at all
-    if (!isWalletLinked || !address) return "Connect";
+  // ── Build button label ─────────────────────────────────────
+  const buttonLabel = (): React.ReactNode => {
+    if (!isConnected || !address) {
+      return "Connect";
+    }
 
-    // State 2: Wallet linked but NOT yet verified
-    if (!isSessionVerified) {
+    // Connected — show EVM address immediately while Mirror Node resolves
+    if (isLoading || !resolved) {
       return (
-        <span className="flex items-center gap-1.5">
-          <ShieldCheck size={13} className="text-amber-400 shrink-0" />
-          <span className="text-amber-400">Verify</span>
+        <span className="flex items-center gap-2">
+          <span className="inline-block w-16 h-3 rounded bg-cyan-900/60 animate-pulse" />
+          <span className="text-xs text-gray-400">{truncateEvmAddress(address)}</span>
         </span>
       );
     }
 
-    // State 3: Fully verified — show shimmer while resolving
-    if (isLoading || !resolved) {
-      return (
-        <span className="inline-block w-20 h-3.5 rounded bg-cyan-900/60 animate-pulse" />
-      );
-    }
-
-    // State 4: Native Hedera ID resolved
+    // Mirror Node resolved native ID
     if (hederaAccountId) {
       return truncateHederaId(hederaAccountId);
     }
 
-    // State 5: Fallback (hollow or lookup failed) — EVM address
+    // Fallback: hollow account or lookup failed — show EVM address
     return truncateEvmAddress(address);
   };
 
-  // ── Click handler for the main button ──────────────────────
+  // ── Click handler ──────────────────────────────────────────
   const handleButtonClick = () => {
-    if (!isWalletLinked) {
-      // Not connected — open AppKit connect modal
+    if (!isConnected) {
       open();
       return;
     }
-
-    if (!isSessionVerified) {
-      // Wallet connected but not verified — approve session
-      verifySession();
-      return;
-    }
-
-    // Already verified — toggle the account dropdown
     setShowDropdown((prev) => !prev);
   };
 
@@ -165,17 +147,15 @@ export default function Header() {
             <button
               id="connect-wallet-btn"
               onClick={handleButtonClick}
-              className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[200px]
+              className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[220px]
                 ${
                   isConnected
                     ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
-                    : isWalletLinked && !isSessionVerified
-                    ? "bg-amber-500/10 border border-amber-400/40 text-amber-400 hover:bg-amber-500/20 animate-pulse"
                     : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
                 }`}
             >
               <Wallet size={16} className="shrink-0" />
-              <span className="truncate">{buttonContent()}</span>
+              <span className="truncate">{buttonLabel()}</span>
               {isConnected && (
                 <ChevronDown
                   size={14}
@@ -186,7 +166,7 @@ export default function Header() {
               )}
             </button>
 
-            {/* Hollow account warning badge */}
+            {/* Hollow account info badge */}
             {isHollowAccount && (
               <button
                 id="hollow-account-info-btn"
@@ -216,7 +196,7 @@ export default function Header() {
             {/* ─── Account Dropdown ─── */}
             {showDropdown && isConnected && (
               <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2">
-                {/* Account id */}
+                {/* Account ID */}
                 <div className="px-4 pt-4 pb-2">
                   <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">
                     Account
@@ -237,6 +217,12 @@ export default function Header() {
                       )}
                     </button>
                   </div>
+                  {/* Show full EVM address underneath if native ID resolved */}
+                  {hederaAccountId && address && (
+                    <p className="text-[10px] text-gray-600 mt-0.5 font-mono">
+                      {truncateEvmAddress(address)}
+                    </p>
+                  )}
                 </div>
 
                 {/* Balance */}

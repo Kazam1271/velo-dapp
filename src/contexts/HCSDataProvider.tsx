@@ -3,17 +3,19 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 // Integrating the Hedera SDK - for now we mock the live testnet feed 
 // but setup the client boilerplate for immediate transition.
-import { Client } from "@hashgraph/sdk";
+import { Client } from "@hiero-ledger/sdk";
 
 export interface FeedItem {
   id: string;
-  timeAgo: string;
+  timestamp: number; // For relative time calculation
   action: string;
   amount1: string;
   token1: string;
   preps: string;
   amount2: string;
   token2: string;
+  txHash: string;
+  account: string;
 }
 
 interface HCSDataContextType {
@@ -22,12 +24,21 @@ interface HCSDataContextType {
 
 const HCSDataContext = createContext<HCSDataContextType | undefined>(undefined);
 
-const mockDataPool: Omit<FeedItem, "id" | "timeAgo">[] = [
-  { action: "swapped", amount1: "2,000", token1: "USDC", preps: "for", amount2: "", token2: "SAUCE" },
-  { action: "removed liquidity", amount1: "", token1: "", preps: "", amount2: "5,000", token2: "HBAR" },
-  { action: "added liquidity", amount1: "1,500", token1: "USDC", preps: "to", amount2: "", token2: "Pool" },
-  { action: "swapped", amount1: "500", token1: "HBAR", preps: "for", amount2: "150", token2: "USDC" },
+const mockDataPool: Omit<FeedItem, "id" | "timestamp" | "txHash" | "account">[] = [
+  { action: "swapped", amount1: "2,000.00", token1: "USDC", preps: "for", amount2: "", token2: "SAUCE" },
+  { action: "swapped", amount1: "500.00", token1: "HBAR", preps: "for", amount2: "150.00", token2: "USDC" },
+  { action: "swapped", amount1: "1,200.00", token1: "SAUCE", preps: "for", amount2: "50.00", token2: "HBAR" },
+  { action: "swapped", amount1: "10,000.00", token1: "PACK", preps: "for", amount2: "85.00", token2: "USDC" },
+  { action: "swapped", amount1: "250.00", token1: "USDT", preps: "for", amount2: "1,000.00", token2: "BONZO" },
 ];
+
+function generateTxHash() {
+  return Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
+}
+
+function generateAccount() {
+  return `0.0.${Math.floor(Math.random() * 90000) + 10000}`;
+}
 
 export function HCSDataProvider({ children }: { children: React.ReactNode }) {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -48,23 +59,24 @@ export function HCSDataProvider({ children }: { children: React.ReactNode }) {
       const randomItem = mockDataPool[Math.floor(Math.random() * mockDataPool.length)];
       
       setFeed((prev) => {
-        const newFeed = [
-          {
-            ...randomItem,
-            id: Date.now().toString(),
-            timeAgo: "1s ago",
-          },
-          ...prev.map(item => ({...item, timeAgo: "1s ago"})),
-        ].slice(0, 5); // keep latest 5
-        return newFeed;
+        const newItem: FeedItem = {
+          ...randomItem,
+          id: `${Date.now()}-${Math.random()}`,
+          timestamp: Date.now(),
+          txHash: generateTxHash(),
+          account: generateAccount(),
+        };
+        return [newItem, ...prev].slice(0, 10); // keep latest 10
       });
-    }, 4500);
+    }, 3800);
 
     // Initial load
     setFeed([{
       ...mockDataPool[0],
       id: Date.now().toString(),
-      timeAgo: "1s ago"
+      timestamp: Date.now(),
+      txHash: generateTxHash(),
+      account: generateAccount(),
     }]);
 
     return () => clearInterval(interval);

@@ -3,9 +3,23 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { useHCSData } from "@/contexts/HCSDataProvider";
 import { CheckCircle2 } from "lucide-react";
+import { useState, useEffect } from "react";
 
 export default function HCSLiveFeed() {
   const { feed } = useHCSData();
+  const [now, setNow] = useState(Date.now());
+
+  // Keep 'now' ticking for relative time updates
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const formatRel = (ts: number) => {
+    const diff = Math.floor((now - ts) / 1000);
+    if (diff < 1) return "now";
+    return `${diff}s`;
+  };
 
   return (
     <div className="w-full max-w-md mx-auto mt-8 mb-24">
@@ -18,40 +32,56 @@ export default function HCSLiveFeed() {
         {/* Terminal Header */}
         <div className="bg-[#131823] px-4 py-2 flex items-center justify-between border-b border-velo-border">
           <div className="flex gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500"></div>
-            <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-            <div className="w-3 h-3 rounded-full bg-green-500"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-[#ff5f57]"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-[#febc2e]"></div>
+            <div className="w-2.5 h-2.5 rounded-full bg-[#28c840]"></div>
           </div>
-          <div className="text-gray-500">hedera-consensus-service</div>
-          <div className="w-12"></div> {/* Spacer for centering text */}
+          <div className="text-[10px] text-gray-500 font-bold uppercase tracking-widest flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-velo-green animate-pulse"></span>
+            HCS Node 0.0.3 (Latency: 42ms)
+          </div>
+          <div className="w-8"></div>
         </div>
 
         {/* Terminal Body */}
         <div className="p-4 h-64 overflow-hidden relative">
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {feed.map((item) => (
               <motion.div
                 key={item.id}
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.4 }}
-                className="flex items-center justify-between py-3 border-b border-white/5 last:border-0"
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, scale: 0.98 }}
+                transition={{ duration: 0.3 }}
+                className="flex flex-col gap-1 py-3 border-b border-white/5 last:border-0"
               >
-                <div className="flex items-start gap-4 flex-1">
-                  <div className="text-gray-600 min-w-10">
-                    <span className="block">{item.timeAgo}</span>
+                <div className="flex items-center justify-between text-[10px]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-600 font-bold">{formatRel(item.timestamp)}</span>
+                    <span className="text-velo-cyan">hash:{item.txHash.slice(0, 8)}...</span>
                   </div>
+                  <div className="text-gray-600 uppercase tracking-tighter">
+                    msg_seq: {Math.floor(item.timestamp / 1000 % 100000)}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
                   <div className="text-gray-400">
-                    Someone{" "}
-                    <span className="text-blue-400">{item.action}</span>{" "}
-                    {item.amount1 && <span className="text-velo-green font-bold">{item.amount1} {item.token1}</span>}{" "}
+                    <span className="text-white/40">{item.account}</span>{" "}
+                    <span className={item.action === "swapped" ? "text-blue-400" : "text-purple-400"}>
+                      {item.action}
+                    </span>{" "}
+                    {item.amount1 && (
+                      <span className="text-velo-green font-bold">
+                        {item.amount1} {item.token1}
+                      </span>
+                    )}{" "}
                     {item.preps}{" "}
                     {item.amount2 && <span className="text-white font-bold">{item.amount2}</span>} {item.token2}
                   </div>
-                </div>
-                <div className="text-velo-green ml-4">
-                  <CheckCircle2 size={16} />
+                  <div className="text-velo-green">
+                    <CheckCircle2 size={14} />
+                  </div>
                 </div>
               </motion.div>
             ))}

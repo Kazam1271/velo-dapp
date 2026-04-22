@@ -25,15 +25,21 @@ export function useHederaAccount(evmAddress: string | null): UseHederaAccountRet
   const [resolved, setResolved] = useState(false);
 
   const lookup = useCallback(async (address: string) => {
+    console.log(`[useHederaAccount] Starting resolution for ${address}`);
     setIsLoading(true);
     setResolved(false);
 
-    const info: HederaAccountInfo = await getNativeAccountId(address);
-
-    setHederaAccountId(info.accountId);
-    setIsHollow(info.isHollow);
-    setIsLoading(false);
-    setResolved(true);
+    try {
+      const info: HederaAccountInfo = await getNativeAccountId(address);
+      setHederaAccountId(info.accountId);
+      setIsHollow(info.isHollow);
+      console.log(`[useHederaAccount] Resolution finished. Native ID: ${info.accountId || "None"}`);
+    } catch (err) {
+      console.error("[useHederaAccount] Fatal error in lookup:", err);
+    } finally {
+      setIsLoading(false);
+      setResolved(true);
+    }
   }, []);
 
   useEffect(() => {
