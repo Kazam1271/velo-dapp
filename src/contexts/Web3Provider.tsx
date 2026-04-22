@@ -116,13 +116,16 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
   const authenticate = useCallback(async () => {
     try {
-      // 1. Resolve Provider (Try connector first, then modal)
+      // 1. Get the provider (Try connector first, then modal fallback)
       let provider = await (connector as any)?.getProvider();
-      if (!provider) {
+      if (!provider || !provider.session) {
+        console.log("[Web3Inner] Connector provider missing session, checking modal...");
         provider = await (modal as any).getProvider();
       }
       
-      if (!provider) throw new Error("No provider available. Please try reconnecting.");
+      if (!provider || !provider.session) {
+        throw new Error("Wallet connected but no communication session found. Please reconnect.");
+      }
 
       if (!isConnected || !address) {
         throw new Error("Wallet not connected.");
@@ -134,31 +137,22 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log("[Web3Inner] Requesting authentication handshake...");
-      const message = `Authenticate Velo DEX session: ${Date.now()}`;
-      
-      const isWalletConnect = provider.session && provider.client;
+      const message = `Velo DEX Authentication\nTimestamp: ${Date.now()}`;
 
-      if (isWalletConnect) {
-        // 1. Initialize the Signer for WalletConnect
-        const signer = new DAppSigner(
-          AccountId.fromString(hederaAccountId),
-          provider.client,
-          provider.session.topic,
-          networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-        );
-        // DAppSigner.sign() maps to hedera_signMessage
-        const encoder = new TextEncoder();
-        await signer.sign([encoder.encode(message)]);
-      } else {
-        // 2. Direct RPC for Injected Extensions
-        await provider.request({
-          method: "hedera_signMessage",
-          params: {
-            signerAccountId: hederaAccountId,
-            message: message,
-          },
-        });
-      }
+      // 2. Initialize the official DAppSigner
+      // We use the active session topic to ensure the popup goes to the right wallet
+      const signer = new DAppSigner(
+        AccountId.fromString(hederaAccountId),
+        (provider.client || provider) as any, // DAppSigner expects the SignClient or Provider
+        provider.session.topic,
+        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+      );
+
+      // 3. Trigger the Handshake (Sign Message)
+      // This is what brings up the HashPack popup!
+      // Note: We use .sign() which internally calls hedera_signMessage
+      const encoder = new TextEncoder();
+      await signer.sign([encoder.encode(message)]);
 
       setIsAuthenticated(true);
       toast.success("Authenticated", {
@@ -166,12 +160,12 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       });
 
     } catch (error: any) {
-      console.error("[Web3Inner] Handshake failed:", error);
+      console.error("[Web3Inner] Auth Error:", error);
       toast.error("Authentication Failed", {
         description: error.message || "Please try again.",
       });
     }
-  }, [isConnected, address, hederaAccountId, networkType]);
+  }, [isConnected, address, hederaAccountId, networkType, connector]);
 
   const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
 
