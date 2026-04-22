@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useSendTransaction, useWalletClient } from "wagmi";
 import { parseEther } from "viem";
+import { ethers } from "ethers";
+import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { 
@@ -393,7 +395,7 @@ export default function SwapInterface() {
     return { value: "0.00", isLoading: isFetchingBalances };
   }, [recvToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
 
-  // ── Conversion Logic (Math Engine) ──────────────────────────
+  // ── Conversion Logic (Real-Time Quoter) ─────────────────────
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
@@ -403,27 +405,45 @@ export default function SwapInterface() {
     }
 
     setIsQuoting(true);
-    const handler = setTimeout(() => {
-      // 1. VELO Fixed Rate Check
+    const handler = setTimeout(async () => {
+      // 1. VELO Fixed Rate Check (1 HBAR = 10 VELO)
       if (payToken.symbol === "HBAR" && recvToken.symbol === "VELO") {
         setReceiveAmount((amount * 10).toFixed(2));
+        setIsQuoting(false);
       } else if (payToken.symbol === "VELO" && recvToken.symbol === "HBAR") {
         setReceiveAmount((amount * 0.1).toFixed(6));
+        setIsQuoting(false);
       } else {
-        const payPrice = getTokenPriceUsd(payToken?.symbol, prices);
-        const receivePrice = getTokenPriceUsd(recvToken?.symbol, prices);
+        // 2. Official SaucerSwap V2 Quote
+        try {
+          console.log(`[Quote] Fetching V2 Quote for ${payAmount} ${payToken.symbol} -> ${recvToken.symbol}`);
+          
+          const quote = await getSaucerSwapQuote(
+            payToken.tokenId,
+            recvToken.tokenId,
+            payAmount,
+            payToken.decimals
+          );
 
-        console.log(`[DEBUG] Pay: ${payToken?.symbol} @ $${payPrice} | Receive: ${recvToken?.symbol} @ $${receivePrice}`);
-
-        if (payAmount && !isNaN(Number(payAmount)) && payPrice > 0 && receivePrice > 0) {
-          const output = (Number(payAmount) * payPrice) / receivePrice;
-          setReceiveAmount(output.toFixed(4));
-        } else {
-          setReceiveAmount('0.00');
+          if (quote) {
+            const formatted = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
+            setReceiveAmount(formatted);
+          } else {
+            // Fallback to price feed if quoter fails
+            const payPrice = getTokenPriceUsd(payToken?.symbol, prices);
+            const receivePrice = getTokenPriceUsd(recvToken?.symbol, prices);
+            if (payPrice > 0 && receivePrice > 0) {
+              const output = (amount * payPrice) / receivePrice;
+              setReceiveAmount(output.toFixed(recvToken.decimals > 6 ? 6 : 4));
+            }
+          }
+        } catch (err) {
+          console.error("Quoting failed:", err);
+        } finally {
+          setIsQuoting(false);
         }
       }
-      setIsQuoting(false);
-    }, 300);
+    }, 600); // 600ms debounce to avoid RPC spam
 
     return () => clearTimeout(handler);
   }, [payAmount, payToken, recvToken, prices]);

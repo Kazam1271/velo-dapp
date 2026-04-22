@@ -143,20 +143,28 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     
     return {
       getSigner: async () => {
-        // We use the official DAppSigner from the library to ensure
-        // full compatibility with the Hedera SDK and avoid "e.call" errors.
+        // 1. Get the underlying provider from AppKit
         const provider = await (modal as any).getProvider();
-        if (!provider || !provider.session) {
-          throw new Error("No active WalletConnect session found");
+        if (!provider) throw new Error("No provider available");
+
+        // 2. Case: WalletConnect (HIP-820 / Native Hedera Handshake)
+        if (provider.session && provider.client) {
+          console.log("[Web3Provider] Using DAppSigner for WalletConnect session.");
+          return new DAppSigner(
+            AccountId.fromString(hederaAccountId),
+            provider.client,
+            provider.session.topic,
+            networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+          );
         }
 
-        // The DAppSigner requires the underlying SignClient and the session topic
-        return new DAppSigner(
-          AccountId.fromString(hederaAccountId),
-          provider.client,
-          provider.session.topic,
-          networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-        );
+        // 3. Case: Injected (EIP-1193 / HashPack Extension)
+        // For injected wallets in this pilot, we fall back to the native provider 
+        // if available, or throw a descriptive error for native Hedera SDK calls.
+        console.warn("[Web3Provider] Injected wallet detected. Native Hedera SDK Signer bridge is limited.");
+        
+        // Return null or a descriptive error for now to prevent hard crash
+        throw new Error("Native Hedera operations (like Association) currently require a WalletConnect connection (e.g. HashPack Mobile/Link). We are working on Extension support.");
       }
     };
   }, [isConnected, connector, address, hederaAccountId, networkType]);
