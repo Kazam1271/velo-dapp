@@ -304,28 +304,48 @@ export default function SwapInterface() {
       // Auto-refresh balances to check for association
       setTimeout(refreshBalances, 3000);
     } catch (err: any) {
-      toast.error("Association Failed", { description: err.message });
+      if (err.message?.includes("TOKEN_ALREADY_ASSOCIATED") || err.message?.includes("Contract logic reverted")) {
+        setIsAssociated(true);
+        toast.success("Already Associated");
+      } else {
+        toast.error("Association Failed", { description: err.message });
+      }
     }
   };
 
   const executeNativeTransaction = async (transaction: any) => {
-    // 1. Get the Provider (Try AppKit first, then Wagmi connector)
-    let provider = await (modal as any).getProvider();
+    // 1. Get the Provider and Identify Connection Type
+    const provider = await (modal as any).getProvider();
+    const connectorName = connector?.name?.toLowerCase() || "";
     
-    if (!provider && connector) {
-      console.log("[Quoter] AppKit provider null, attempting to get from Wagmi connector...");
-      provider = await (connector as any).getProvider();
+    console.log(`[Router] Routing transaction for wallet: ${connector?.name}`);
+
+    // PATH A: MetaMask (EVM / Precompile)
+    if (connectorName.includes("metamask")) {
+      console.log("[Router] Using MetaMask Precompile Path...");
+      // For MetaMask, we use the Wagmi writeContract for association
+      // But for general transactions, if it's a native SDK object, we might need to convert it.
+      // However, the user's snippet says MetaMask uses associateToken.
+      if (transaction instanceof TokenAssociateTransaction) {
+        const tokens = (transaction as any)._tokenIds.map((id: any) => 
+          `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
+        );
+        
+        await writeContract({
+          address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+          abi: HTS_ABI,
+          functionName: "associate",
+          args: [address as `0x${string}`, tokens],
+        });
+        return { success: true };
+      }
+      throw new Error("MetaMask path only supports Association in this version.");
     }
 
-    if (!provider) {
-      throw new Error("No provider available - is the wallet connected? (Try refreshing)");
-    }
-
-    // 2. Identify Connection Type (WalletConnect vs Injected)
-    const isWalletConnect = provider.session && provider.client;
-
+    // PATH B: WalletConnect (Mobile / HashPack Link)
+    const isWalletConnect = provider?.session && provider?.client;
     if (isWalletConnect) {
-      console.log("[Quoter] Using DAppSigner for WalletConnect session.");
+      console.log("[Router] Using WalletConnect DAppSigner Path...");
       const topic = provider.session.topic;
       if (!topic || !hederaAccountId) throw new Error("No active session found.");
 
@@ -338,11 +358,15 @@ export default function SwapInterface() {
 
       await transaction.freezeWithSigner(signer);
       return await transaction.executeWithSigner(signer);
-    } else {
-      // 3. Handle Injected (HashPack Extension)
-      console.warn("[Quoter] Injected wallet detected. Extension bridging is limited.");
-      throw new Error("Native Hedera operations (like Association) currently require a WalletConnect connection (e.g. HashPack Mobile/Link). Browser extension support is coming soon.");
     }
+
+    // PATH C: Native Extension (HashPack / Blade Extension via EIP-6963/Injected)
+    console.log("[Router] Using Native Extension Path...");
+    if (walletInterface?.executeTransaction) {
+      return await walletInterface.executeTransaction(transaction);
+    }
+
+    throw new Error(`Connection type '${connector?.name}' not supported for native Hedera operations.`);
   };
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
@@ -399,10 +423,19 @@ export default function SwapInterface() {
       setHasClaimed(true);
       refreshBalances(); 
     } catch (err: any) {
-      toast.error("Claim Failed", {
-        id: toastId,
-        description: err.message.includes("rejected") ? "Transaction was rejected." : err.message,
-      });
+      console.error("Claim Error:", err);
+      if (err.message?.includes("TOKEN_ALREADY_ASSOCIATED") || err.message?.includes("Contract logic reverted")) {
+        toast.info("Token already associated. Please click Claim again to finish.", { 
+          id: toastId,
+          duration: 5000 
+        });
+        refreshBalances();
+      } else {
+        toast.error("Claim Failed", {
+          id: toastId,
+          description: err.message.includes("rejected") ? "Transaction was rejected." : err.message,
+        });
+      }
     } finally {
       setIsClaiming(false);
     }

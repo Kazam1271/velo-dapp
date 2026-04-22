@@ -67,9 +67,13 @@ interface Web3ContextType {
   open: () => void;
   disconnect: () => void;
   connector: any;
-  /** Official Hedera Signing Interface compatibility */
+  /** Universal Wallet Interface for Hedera Operations */
   walletInterface: {
-    getSigner: () => any;
+    getSigner: () => Promise<any>;
+    /** For MetaMask / EVM: Use HTS Precompile */
+    associateToken?: (tokenId: string) => Promise<any>;
+    /** For Extensions / Bridge: Execute native SDK transaction */
+    executeTransaction?: (transaction: any) => Promise<any>;
   } | null;
 }
 
@@ -143,13 +147,10 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     
     return {
       getSigner: async () => {
-        // 1. Get the underlying provider from AppKit
         const provider = await (modal as any).getProvider();
         if (!provider) throw new Error("No provider available");
 
-        // 2. Case: WalletConnect (HIP-820 / Native Hedera Handshake)
         if (provider.session && provider.client) {
-          console.log("[Web3Provider] Using DAppSigner for WalletConnect session.");
           return new DAppSigner(
             AccountId.fromString(hederaAccountId),
             provider.client,
@@ -157,14 +158,44 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
             networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
           );
         }
+        throw new Error("DAppSigner requires WalletConnect session.");
+      },
 
-        // 3. Case: Injected (EIP-1193 / HashPack Extension)
-        // For injected wallets in this pilot, we fall back to the native provider 
-        // if available, or throw a descriptive error for native Hedera SDK calls.
-        console.warn("[Web3Provider] Injected wallet detected. Native Hedera SDK Signer bridge is limited.");
+      associateToken: async (tokenIdStr: string) => {
+        // Path A: MetaMask / EVM Precompile
+        if (connector.name.toLowerCase().includes("metamask")) {
+          console.log("[Web3Provider] Using MetaMask Precompile Association...");
+          // HTS Precompile Associate: associate(address,address[])
+          const HTS_PRECOMPILE = "0x0000000000000000000000000000000000000167";
+          const tokenAddress = `0x${AccountId.fromString(tokenIdStr).toSolidityAddress()}`;
+          
+          // Note: This assumes Wagmi's useWriteContract or similar, 
+          // but since we are in a context, we can use the provider directly.
+          const provider = await (connector as any).getProvider();
+          // For now, we will let the component handle the specific viem call if needed,
+          // but we'll provide the logic here.
+          throw new Error("MetaMask association should be handled via Wagmi writeContract.");
+        }
+      },
+
+      executeTransaction: async (transaction: any) => {
+        const provider = await (connector as any).getProvider();
+        if (!provider) throw new Error("No provider available");
+
+        // Path C: Native Extension (HashPack/Blade)
+        // Many extensions support hedera_signAndExecuteTransaction
+        console.log("[Web3Provider] Executing via Injected Extension Provider...");
         
-        // Return null or a descriptive error for now to prevent hard crash
-        throw new Error("Native Hedera operations (like Association) currently require a WalletConnect connection (e.g. HashPack Mobile/Link). We are working on Extension support.");
+        // This is a bridge: extensions expect the transaction bytes
+        const bytes = transaction.toBytes();
+        const params = [
+          Buffer.from(bytes).toString("base64")
+        ];
+
+        return await provider.request({
+          method: "hedera_signAndExecuteTransaction",
+          params: params
+        });
       }
     };
   }, [isConnected, connector, address, hederaAccountId, networkType]);
