@@ -45,8 +45,8 @@ export const modal = createAppKit({
     "--w3m-border-radius-master": "16px",
   },
   allWallets: "SHOW",
-  // Request official Hedera namespace permissions
-  optionalNamespaces: {
+  // Force-inject official Hedera native permissions
+  requiredNamespaces: {
     hedera: {
       methods: [
         "hedera_signAndExecuteTransaction",

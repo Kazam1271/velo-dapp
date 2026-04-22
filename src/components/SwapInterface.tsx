@@ -44,6 +44,17 @@ const HTS_ABI = [
     "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "token", "type": "address" },
+      { "internalType": "address[]", "name": "sender", "type": "address[]" },
+      { "internalType": "int64[]", "name": "amount", "type": "int64[]" }
+    ],
+    "name": "transferTokens",
+    "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ] as const;
 
@@ -317,34 +328,84 @@ export default function SwapInterface() {
     // 1. Get the Provider and Identify Connection Type
     const provider = await (modal as any).getProvider();
     const connectorName = connector?.name?.toLowerCase() || "";
+    const isWalletConnect = provider?.session && provider?.client;
     
-    console.log(`[Router] Routing transaction for wallet: ${connector?.name}`);
+    console.log(`[Router] Routing for ${connector?.name} (WC: ${!!isWalletConnect})`);
 
-    // PATH A: MetaMask (EVM / Precompile)
-    if (connectorName.includes("metamask")) {
-      console.log("[Router] Using MetaMask Precompile Path...");
-      // For MetaMask, we use the Wagmi writeContract for association
-      // But for general transactions, if it's a native SDK object, we might need to convert it.
-      // However, the user's snippet says MetaMask uses associateToken.
+    // ─────────────────────────────────────────────────────────────────
+    // PATH A: Injected (EVM) - MetaMask / HashPack Extension / Blade
+    // ─────────────────────────────────────────────────────────────────
+    if (!isWalletConnect || connectorName.includes("metamask")) {
+      console.log("[Router] Using EVM Bridge Path...");
+
+      // Case: ASSOCIATION
       if (transaction instanceof TokenAssociateTransaction) {
+        console.log("[Router] EVM Associate...");
         const tokens = (transaction as any)._tokenIds.map((id: any) => 
           `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
         );
         
-        await writeContract({
+        const hash = await writeContractAsync({
           address: HTS_CONTRACT_ADDRESS as `0x${string}`,
           abi: HTS_ABI,
           functionName: "associate",
           args: [address as `0x${string}`, tokens],
         });
-        return { success: true };
+        return { transactionId: hash, hash };
       }
-      throw new Error("MetaMask path only supports Association in this version.");
+
+      // Case: TRANSFER / PAYMENT
+      if (transaction instanceof TransferTransaction) {
+        console.log("[Router] EVM Transfer...");
+        const hbarTransfers = (transaction as any)._hbarTransfers || [];
+        const tokenTransfers = (transaction as any)._tokenTransfers || new Map();
+
+        // Subcase: HBAR ONLY (Standard eth_sendTransaction)
+        if (tokenTransfers.size === 0 && hbarTransfers.length > 0) {
+          console.log("[Router] EVM HBAR Transfer...");
+          // Find the negative amount (sender) and positive (receiver)
+          const treasuryTransfer = hbarTransfers.find((t: any) => !t.amount.isNegative());
+          if (!treasuryTransfer) throw new Error("No receiver found in HBAR transfer");
+
+          const hash = await sendTransactionAsync({
+            to: TREASURY_EVM_ADDRESS as `0x${string}`,
+            value: parseEther(treasuryTransfer.amount.toString().split(" ")[0]),
+          });
+          return { transactionId: hash, hash };
+        }
+
+        // Subcase: TOKEN TRANSFER (HTS Precompile)
+        if (tokenTransfers.size > 0) {
+          console.log("[Router] EVM Token Transfer via Precompile...");
+          // We'll use transferTokens for the first token found
+          const [tokenId, transfers] = Array.from(tokenTransfers.entries())[0] as [any, any];
+          const tokenAddress = `0x${TokenId.fromString(tokenId.toString()).toSolidityAddress()}`;
+          
+          // Find the treasury amount
+          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > 0n) as bigint;
+          if (!treasuryAmount) throw new Error("No receiver found in token transfer");
+
+          const hash = await writeContractAsync({
+            address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            abi: HTS_ABI,
+            functionName: "transferTokens",
+            args: [
+              tokenAddress as `0x${string}`, 
+              [address as `0x${string}`, TREASURY_EVM_ADDRESS as `0x${string}`], 
+              [-(treasuryAmount), treasuryAmount]
+            ],
+          });
+          return { transactionId: hash, hash };
+        }
+      }
+
+      throw new Error(`EVM path does not yet support ${transaction.constructor.name}`);
     }
 
-    // PATH B: WalletConnect (Mobile / HashPack Link)
-    const isWalletConnect = provider?.session && provider?.client;
-    if (isWalletConnect) {
+    // ─────────────────────────────────────────────────────────────────
+    // PATH B: WalletConnect (Mobile / Remote)
+    // ─────────────────────────────────────────────────────────────────
+    if (isWalletConnect && provider.session && provider.client) {
       console.log("[Router] Using WalletConnect DAppSigner Path...");
       const topic = provider.session.topic;
       if (!topic || !hederaAccountId) throw new Error("No active session found.");
@@ -359,14 +420,6 @@ export default function SwapInterface() {
       await transaction.freezeWithSigner(signer);
       return await transaction.executeWithSigner(signer);
     }
-
-    // PATH C: Native Extension (HashPack / Blade Extension via EIP-6963/Injected)
-    console.log("[Router] Using Native Extension Path...");
-    if (walletInterface?.executeTransaction) {
-      return await walletInterface.executeTransaction(transaction);
-    }
-
-    throw new Error(`Connection type '${connector?.name}' not supported for native Hedera operations.`);
   };
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
