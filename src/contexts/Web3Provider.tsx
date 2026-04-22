@@ -9,8 +9,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod } from "@hashgraph/hedera-wallet-connect";
-import { AccountId, TransactionId } from "@hiero-ledger/sdk";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace } from "@hashgraph/hedera-wallet-connect";
+import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
@@ -25,7 +25,7 @@ const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 // ─────────────────────────────────────────────────────────────────
 // 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
-createAppKit({
+const modal = createAppKit({
   adapters: [wagmiAdapter],
   networks: networks as [any, ...any[]],
   projectId,
@@ -45,20 +45,9 @@ createAppKit({
     "--w3m-border-radius-master": "16px",
   },
   allWallets: "SHOW",
-  // @ts-ignore - Required for HashPack to explicitly accept these methods during handshake
+  // Request official Hedera namespace permissions
   optionalNamespaces: {
-    hedera: {
-      chains: ["hedera:296", "hedera:295", "hedera:testnet", "hedera:mainnet"], 
-      methods: [
-        HederaJsonRpcMethod.SignAndExecuteTransaction,
-        HederaJsonRpcMethod.SignTransaction,
-        HederaJsonRpcMethod.SignMessage,
-        "hedera_executeTransaction",
-        "hedera_getNodeAddresses",
-        "hedera_getRecords"
-      ],
-      events: ["chainChanged", "accountsChanged"],
-    },
+    hedera: hederaNamespace,
   },
 } as any);
 
@@ -150,37 +139,27 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
   // ── Wallet Interface Compatibility ──────────────────────────
   const walletInterface = useMemo(() => {
-    if (!isConnected || !connector || !address) return null;
+    if (!isConnected || !connector || !address || !hederaAccountId) return null;
     
     return {
-      getSigner: () => {
-        // We create a wrapper that uses the underlying provider's request method
-        // to implement the SDK's Signer interface
-        return {
-          getAccountId: () => hederaAccountId ? AccountId.fromString(hederaAccountId) : null,
-          executeTransaction: async (tx: any) => {
-             // 1. Ensure transaction is frozen and has IDs (standard SDK behavior)
-             if (!tx.isFrozen()) {
-               tx.setTransactionId(TransactionId.generate(hederaAccountId!));
-               tx.setNodeAccountIds([new AccountId(3)]);
-               tx.freeze();
-             }
+      getSigner: async () => {
+        // We use the official DAppSigner from the library to ensure
+        // full compatibility with the Hedera SDK and avoid "e.call" errors.
+        const provider = await (modal as any).getProvider();
+        if (!provider || !provider.session) {
+          throw new Error("No active WalletConnect session found");
+        }
 
-             // 2. Extract bytes and send to wallet
-             const bytes = tx.toBytes();
-             const base64Tx = Buffer.from(bytes).toString('base64');
-             const provider = await connector.getProvider();
-             
-             console.log(`[Signer] Executing ${tx.constructor.name} via WalletConnect...`);
-             return await (provider as any).request({
-               method: HederaJsonRpcMethod.SignAndExecuteTransaction,
-               params: [base64Tx]
-             });
-          }
-        };
+        // The DAppSigner requires the underlying SignClient and the session topic
+        return new DAppSigner(
+          AccountId.fromString(hederaAccountId),
+          provider.client,
+          provider.session.topic,
+          networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+        );
       }
     };
-  }, [isConnected, connector, address, hederaAccountId]);
+  }, [isConnected, connector, address, hederaAccountId, networkType]);
 
   const value = useMemo(() => ({
     isConnected: !!isConnected,

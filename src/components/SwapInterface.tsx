@@ -293,7 +293,7 @@ export default function SwapInterface() {
         .setAccountId(AccountId.fromString(hederaAccountId!))
         .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
 
-      const signer = walletInterface?.getSigner();
+      const signer = await walletInterface?.getSigner();
       if (!signer) throw new Error("Signer not available");
 
       await tx.executeWithSigner(signer);
@@ -333,7 +333,7 @@ export default function SwapInterface() {
           .setAccountId(AccountId.fromString(hederaAccountId))
           .setTokenIds([TokenId.fromString("0.0.8725045")]);
 
-        const signer = walletInterface?.getSigner();
+        const signer = await walletInterface?.getSigner();
         if (!signer) throw new Error("Signer not available");
 
         await associateTx.executeWithSigner(signer);
@@ -491,7 +491,7 @@ export default function SwapInterface() {
           .addTokenTransfer(payToken.tokenId, AccountId.fromString(treasuryId), tinyAmount);
       }
 
-      const signer = walletInterface?.getSigner();
+      const signer = await walletInterface?.getSigner();
       if (!signer) throw new Error("Signer not available");
 
       const result = await tx.executeWithSigner(signer);
