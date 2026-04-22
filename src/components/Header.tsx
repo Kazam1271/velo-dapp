@@ -2,7 +2,7 @@
 
 import { Zap, Wallet, Info, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useWeb3 } from "@/contexts/Web3Provider";
+import { useWeb3, modal } from "@/contexts/Web3Provider";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 
 export default function Header() {
@@ -238,6 +238,33 @@ export default function Header() {
 
                 {/* Divider */}
                 <div className="border-t border-velo-border" />
+
+                {/* Debug Permissions button */}
+                <button
+                  onClick={async () => {
+                    setShowDropdown(false);
+                    const provider = await (modal as any).getProvider();
+                    const session = provider?.session;
+                    
+                    if (!session) {
+                      alert("No active session found. Please connect via WalletConnect to test.");
+                      return;
+                    }
+
+                    const approvedMethods = session.namespaces?.hedera?.methods || [];
+                    console.log("Approved Hedera Methods:", approvedMethods);
+                    
+                    if (approvedMethods.includes('hedera_signAndExecuteTransaction')) {
+                      alert("✅ Handshake Success! 'signAndExecute' is approved.\n\nMethods: " + approvedMethods.join(", "));
+                    } else {
+                      alert("❌ Handshake Failed. Permission was NOT granted by the wallet.\n\nPlease Disconnect here AND in your wallet settings.");
+                    }
+                  }}
+                  className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-yellow-400 hover:bg-yellow-500/10 transition-colors"
+                >
+                  <Info size={15} />
+                  Debug Permissions
+                </button>
 
                 {/* Disconnect button */}
                 <button
