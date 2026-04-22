@@ -172,7 +172,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
              const provider = await connector.getProvider();
              
              console.log(`[Signer] Executing ${tx.constructor.name} via WalletConnect...`);
-             return await provider.request({
+             return await (provider as any).request({
                method: HederaJsonRpcMethod.SignAndExecuteTransaction,
                params: [base64Tx]
              });
