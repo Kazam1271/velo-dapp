@@ -83,6 +83,8 @@ interface Web3ContextType {
     /** For Extensions / Bridge: Execute native SDK transaction */
     executeTransaction?: (transaction: any) => Promise<any>;
   } | null;
+  isAuthenticated: boolean;
+  authenticate: () => Promise<void>;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -102,6 +104,64 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   // ── Native Hedera Resolution ──────────────────────────────
   const { hederaAccountId } = useHederaAccount(isConnected && address ? address : null);
   const { balance: nativeBalance, isLoading: isRefreshingBalance } = useHederaBalance(hederaAccountId);
+
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  // Reset authentication if the user disconnects or account changes
+  useEffect(() => {
+    if (!isConnected || !address) {
+      setIsAuthenticated(false);
+    }
+  }, [isConnected, address]);
+
+  const authenticate = useCallback(async () => {
+    try {
+      const provider = await (modal as any).getProvider();
+      if (!provider) throw new Error("No provider available");
+
+      if (!isConnected || !address || !hederaAccountId) {
+        throw new Error("Wallet not connected");
+      }
+
+      console.log("[Web3Inner] Requesting authentication handshake...");
+      const message = `Authenticate Velo DEX session: ${Date.now()}`;
+      
+      const isWalletConnect = provider.session && provider.client;
+
+      if (isWalletConnect) {
+        // 1. Initialize the Signer for WalletConnect
+        const signer = new DAppSigner(
+          AccountId.fromString(hederaAccountId),
+          provider.client,
+          provider.session.topic,
+          networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+        );
+        // DAppSigner.sign() maps to hedera_signMessage
+        const encoder = new TextEncoder();
+        await signer.sign([encoder.encode(message)]);
+      } else {
+        // 2. Direct RPC for Injected Extensions
+        await provider.request({
+          method: "hedera_signMessage",
+          params: {
+            signerAccountId: hederaAccountId,
+            message: message,
+          },
+        });
+      }
+
+      setIsAuthenticated(true);
+      toast.success("Authenticated", {
+        description: "Handshake successful.",
+      });
+
+    } catch (error: any) {
+      console.error("[Web3Inner] Handshake failed:", error);
+      toast.error("Authentication Failed", {
+        description: error.message || "Please try again.",
+      });
+    }
+  }, [isConnected, address, hederaAccountId, networkType]);
 
   const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
 
@@ -217,8 +277,10 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     open,
     disconnect: fullDisconnect,
     connector,
-    walletInterface
-  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface]);
+    walletInterface,
+    isAuthenticated,
+    authenticate
+  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface, isAuthenticated, authenticate]);
 
   return (
     <Web3Context.Provider value={value}>
