@@ -47,7 +47,15 @@ export const modal = createAppKit({
   allWallets: "SHOW",
   // Request official Hedera namespace permissions
   optionalNamespaces: {
-    hedera: hederaNamespace,
+    hedera: {
+      methods: [
+        "hedera_signAndExecuteTransaction",
+        "hedera_signTransaction",
+        "hedera_signMessage",
+      ],
+      chains: [networkType === "mainnet" ? "hedera:mainnet" : "hedera:testnet"],
+      events: ["chainChanged", "accountsChanged"],
+    },
   },
 } as any);
 
