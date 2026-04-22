@@ -10,6 +10,7 @@ import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { HederaJsonRpcMethod } from "@hashgraph/hedera-wallet-connect";
+import { AccountId, TransactionId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
