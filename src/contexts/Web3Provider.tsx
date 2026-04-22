@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod, DAppSigner, hederaNamespace } from "@hashgraph/hedera-wallet-connect";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter } from "@hashgraph/hedera-wallet-connect";
 import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -22,19 +22,28 @@ const wagmiAdapter = new WagmiAdapter({ networks, projectId });
 
 const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 
+const metadata = {
+  name: "Velo",
+  description: "High-velocity Hedera DeFi dApp",
+  url: "https://velo-swart.vercel.app/",
+  icons: ["https://i.imgur.com/uF9BXZ8.png"],
+};
+
 // ─────────────────────────────────────────────────────────────────
 // 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
 export const modal = createAppKit({
-  adapters: [wagmiAdapter],
+  metadata,
+  adapters: [
+    wagmiAdapter,
+    new HederaAdapter({ 
+      projectId, 
+      networks: networks as any, 
+      metadata,
+      namespaceMode: 'required' 
+    })
+  ],
   networks: networks as [any, ...any[]],
-  projectId,
-  metadata: {
-    name: "Velo",
-    description: "High-velocity Hedera DeFi dApp",
-    url: "https://velo-swart.vercel.app/",
-    icons: ["https://i.imgur.com/uF9BXZ8.png"],
-  },
   features: {
     analytics: true,
     socials: ["google", "apple", "facebook"],
