@@ -261,74 +261,10 @@ export default function SwapInterface() {
   const { prices } = usePriceFeed();
   const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
 
-  const { connector } = useWeb3();
+  const { connector, walletInterface } = useWeb3();
   const { data: walletClient } = useWalletClient();
 
-  // --- Helper: Execute SDK Transaction via Wallet ---
-  const executeHederaTx = async (tx: Transaction) => {
-    if (!connector || !hederaAccountId) throw new Error("Wallet not fully connected (Native ID missing)");
-    
-    console.log("Preparing SDK Transaction for Wallet...", tx.constructor.name);
-    
-    // 1. Freeze and set ID/Node if not set (Hardened Freezing - Task 4)
-    tx.setTransactionId(TransactionId.generate(hederaAccountId));
-    tx.setNodeAccountIds([new AccountId(3)]); // Standard testnet node
-    tx.freeze();
-
-    // 2. Transition to Provider with Fallback (Task 6)
-    let provider: any = null;
-    
-    try {
-      provider = await connector.getProvider();
-    } catch (e) {
-      console.warn("Failed to get provider directly from connector, attempting fallback...", e);
-    }
-
-    if (!provider && walletClient) {
-      console.log("Using Wagmi walletClient as provider fallback");
-      provider = walletClient;
-    }
-
-    if (!provider) {
-      throw new Error("No valid wallet provider found. Please disconnect and reconnect.");
-    }
-    
-    try {
-      const bytes = tx.toBytes();
-      const base64Tx = Buffer.from(bytes).toString('base64');
-      
-      console.log("Requesting Wallet Signature via hedera_signAndExecuteTransaction...");
-      
-      // Task 2: Shift to the more widely supported "catch-all" method for HashPack
-      const result = await provider.request({
-        method: 'hedera_signAndExecuteTransaction',
-        params: [base64Tx]
-      });
-      
-      console.log("Wallet Execution Result:", result);
-      return result;
-    } catch (err: any) {
-      console.error("Wallet Execution Failed:", err);
-
-      // Task 3: Check for 'Unsupported Method' errors which imply an outdated WC session
-      const errorMsg = err.message || "";
-      const isUnsupported = errorMsg.toLowerCase().includes("unsupported method") || 
-                            errorMsg.toLowerCase().includes("not recognized") ||
-                            err.code === -32601;
-
-      if (isUnsupported) {
-        toast.error("Update Permissions: Please Disconnect and Reconnect to enable transactions.", {
-          duration: 10000,
-          action: {
-            label: "Disconnect Now",
-            onClick: () => localStorage.setItem("velo_manual_disconnect", "true"), // Mark for reset
-          }
-        });
-      }
-
-      throw err;
-    }
-  };
+  // (Removed executeHederaTx in favor of native executeWithSigner)
 
   // Debug: Monitor Wagmi lifecycle
   useEffect(() => {
@@ -351,19 +287,16 @@ export default function SwapInterface() {
     }
 
     try {
-      console.log(`[Associate] Constructing EVM Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
+      console.log(`[Associate] Constructing Native Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
+      
+      const tx = new TokenAssociateTransaction()
+        .setAccountId(AccountId.fromString(hederaAccountId!))
+        .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
 
-      // Convert 0.0.X to EVM Address
-      const parts = recvToken.tokenId.split(".");
-      const evmTokenAddress = `0x${BigInt(parts[2]).toString(16).padStart(40, '0')}`;
+      const signer = walletInterface?.getSigner();
+      if (!signer) throw new Error("Signer not available");
 
-      // Call HTS Precompile directly via standard EVM execution
-      await writeContractAsync({
-        address: HTS_CONTRACT_ADDRESS as `0x${string}`,
-        abi: HTS_ABI,
-        functionName: 'associate',
-        args: [address as `0x${string}`, [evmTokenAddress as `0x${string}`]],
-      });
+      await tx.executeWithSigner(signer);
       
       toast.success("Association Sent", {
         description: "Checking Mirror Node status...",
@@ -393,15 +326,17 @@ export default function SwapInterface() {
       if (!isVeloAssociated) {
         toast.info("Association Required", {
           id: toastId,
-          description: "Signing VELO EVM association payload...",
+          description: "Signing VELO association via HashPack...",
         });
 
-        await writeContractAsync({
-          address: HTS_CONTRACT_ADDRESS as `0x${string}`,
-          abi: HTS_ABI,
-          functionName: 'associate',
-          args: [address as `0x${string}`, [VELO_EVM_ADDRESS as `0x${string}`]],
-        });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString("0.0.8725045")]);
+
+        const signer = walletInterface?.getSigner();
+        if (!signer) throw new Error("Signer not available");
+
+        await associateTx.executeWithSigner(signer);
         
         toast.loading("Association confirmed. Executing claim...", { id: toastId });
       } else {
@@ -556,7 +491,10 @@ export default function SwapInterface() {
           .addTokenTransfer(payToken.tokenId, AccountId.fromString(treasuryId), tinyAmount);
       }
 
-      const result = await executeHederaTx(tx);
+      const signer = walletInterface?.getSigner();
+      if (!signer) throw new Error("Signer not available");
+
+      const result = await tx.executeWithSigner(signer);
       const hash = result?.transactionHash || result?.hash || result; 
 
       toast.info("Payment Confirmed", {

@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
+import { HederaJsonRpcMethod } from "@hashgraph/hedera-wallet-connect";
+import { WalletConnectSigner } from "@hashgraph/hedera-wallet-connect";
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
@@ -46,12 +48,12 @@ createAppKit({
   // @ts-ignore - Required for HashPack to explicitly accept these methods during handshake
   optionalNamespaces: {
     hedera: {
-      chains: ["hedera:296", "hedera:295"], 
+      chains: ["hedera:296", "hedera:295", "hedera:testnet", "hedera:mainnet"], 
       methods: [
-        "hedera_signAndExecuteTransaction",
-        "hedera_signTransaction",
+        HederaJsonRpcMethod.SignAndExecuteTransaction,
+        HederaJsonRpcMethod.SignTransaction,
+        HederaJsonRpcMethod.SignMessage,
         "hedera_executeTransaction",
-        "hedera_signMessage",
         "hedera_getNodeAddresses",
         "hedera_getRecords"
       ],
@@ -76,6 +78,10 @@ interface Web3ContextType {
   open: () => void;
   disconnect: () => void;
   connector: any;
+  /** Official Hedera Signing Interface compatibility */
+  walletInterface: {
+    getSigner: () => any;
+  } | null;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -142,6 +148,40 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isConnected, fullDisconnect]);
 
+  // ── Wallet Interface Compatibility ──────────────────────────
+  const walletInterface = useMemo(() => {
+    if (!isConnected || !connector || !address) return null;
+    
+    return {
+      getSigner: () => {
+        // We create a wrapper that uses the underlying provider's request method
+        // to implement the SDK's Signer interface
+        return {
+          getAccountId: () => hederaAccountId ? AccountId.fromString(hederaAccountId) : null,
+          executeTransaction: async (tx: any) => {
+             // 1. Ensure transaction is frozen and has IDs (standard SDK behavior)
+             if (!tx.isFrozen()) {
+               tx.setTransactionId(TransactionId.generate(hederaAccountId!));
+               tx.setNodeAccountIds([new AccountId(3)]);
+               tx.freeze();
+             }
+
+             // 2. Extract bytes and send to wallet
+             const bytes = tx.toBytes();
+             const base64Tx = Buffer.from(bytes).toString('base64');
+             const provider = await connector.getProvider();
+             
+             console.log(`[Signer] Executing ${tx.constructor.name} via WalletConnect...`);
+             return await provider.request({
+               method: HederaJsonRpcMethod.SignAndExecuteTransaction,
+               params: [base64Tx]
+             });
+          }
+        };
+      }
+    };
+  }, [isConnected, connector, address, hederaAccountId]);
+
   const value = useMemo(() => ({
     isConnected: !!isConnected,
     address: address || null,
@@ -151,7 +191,8 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     open,
     disconnect: fullDisconnect,
     connector,
-  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector]);
+    walletInterface
+  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface]);
 
   return (
     <Web3Context.Provider value={value}>
