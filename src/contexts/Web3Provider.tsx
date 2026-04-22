@@ -71,6 +71,7 @@ interface Web3ContextType {
   walletInterface: {
     getSigner: () => any;
   } | null;
+  isWalletConnect: boolean;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -178,7 +179,8 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     open,
     disconnect: fullDisconnect,
     connector,
-    walletInterface
+    walletInterface,
+    isWalletConnect: !!(connector?.name?.toLowerCase().includes("walletconnect") || (connector as any)?.id === "walletConnect")
   }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface]);
 
   return (

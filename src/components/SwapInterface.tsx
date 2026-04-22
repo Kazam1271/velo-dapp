@@ -244,7 +244,7 @@ const getTokenPriceUsd = (symbol: string | undefined, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance } = useWeb3();
+  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, isWalletConnect } = useWeb3();
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapStage, setSwapStage] = useState<"IDLE" | "WAITING_FOR_WALLET" | "VERIFYING_ON_HEDERA" | "TREASURY_SENDING">("IDLE");
 
@@ -289,13 +289,24 @@ export default function SwapInterface() {
       return;
     }
     try {
-      console.log(`[Associate] Constructing Native Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
+      console.log(`[Associate] Attempting Association for ${recvToken.symbol}... Mode: ${isWalletConnect ? "Native" : "EVM"}`);
       
-      const tx = new TokenAssociateTransaction()
-        .setAccountId(AccountId.fromString(hederaAccountId!))
-        .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
+      if (isWalletConnect) {
+        const tx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId!))
+          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
 
-      await executeNativeTransaction(tx);
+        await executeNativeTransaction(tx);
+      } else {
+        // EVM Fallback: Call HTS System Contract (0x167)
+        const tokenEvmAddress = `0x${AccountId.fromString(recvToken.tokenId).toSolidityAddress()}`;
+        await writeContractAsync({
+          address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+          abi: HTS_ABI,
+          functionName: "associate",
+          args: [address as `0x${string}`, [tokenEvmAddress as `0x${string}`]],
+        });
+      }
       
       toast.success("Association Sent", {
         description: "Checking Mirror Node status...",
@@ -308,31 +319,41 @@ export default function SwapInterface() {
     }
   };
 
-  // ── Native Execution Helper ────────────────────────────────
   const executeNativeTransaction = async (transaction: any) => {
-    // 1. Get the Provider from AppKit
-    const universalProvider = await (modal as any).getProvider();
-    if (!universalProvider) throw new Error("No provider available - is the wallet connected?");
+    // 1. Get the Provider (Try AppKit first, then Wagmi connector)
+    let provider = await (modal as any).getProvider();
+    
+    if (!provider && connector) {
+      console.log("[Quoter] AppKit provider null, attempting to get from Wagmi connector...");
+      provider = await (connector as any).getProvider();
+    }
 
-    // 2. Get Session Data
-    const session = universalProvider.session;
-    const topic = session?.topic;
-    if (!topic || !hederaAccountId) throw new Error("No active session found.");
+    if (!provider) {
+      throw new Error("No provider available - is the wallet connected? (Try refreshing)");
+    }
 
-    // 3. Initialize the DAppSigner
-    // This object bridges Reown/WalletConnect directly to the Hedera SDK
-    const signer = new DAppSigner(
-      AccountId.fromString(hederaAccountId),
-      universalProvider.client,
-      topic,
-      networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-    );
+    // 2. Identify Connection Type (WalletConnect vs Injected)
+    const isWalletConnect = provider.session && provider.client;
 
-    // 4. Execute with the Signer
-    // This triggers the "Smart Contract Execute" or "Associate" popup in HashPack
-    await transaction.freezeWithSigner(signer);
-    const response = await transaction.executeWithSigner(signer);
-    return response;
+    if (isWalletConnect) {
+      console.log("[Quoter] Using DAppSigner for WalletConnect session.");
+      const topic = provider.session.topic;
+      if (!topic || !hederaAccountId) throw new Error("No active session found.");
+
+      const signer = new DAppSigner(
+        AccountId.fromString(hederaAccountId),
+        provider.client,
+        topic,
+        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+      );
+
+      await transaction.freezeWithSigner(signer);
+      return await transaction.executeWithSigner(signer);
+    } else {
+      // 3. Handle Injected (HashPack Extension)
+      console.warn("[Quoter] Injected wallet detected. Extension bridging is limited.");
+      throw new Error("Native Hedera operations (like Association) currently require a WalletConnect connection (e.g. HashPack Mobile/Link). Browser extension support is coming soon.");
+    }
   };
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
@@ -355,11 +376,21 @@ export default function SwapInterface() {
           description: "Signing VELO association via HashPack...",
         });
 
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId))
-          .setTokenIds([TokenId.fromString("0.0.8725045")]);
+        if (isWalletConnect) {
+          const associateTx = new TokenAssociateTransaction()
+            .setAccountId(AccountId.fromString(hederaAccountId))
+            .setTokenIds([TokenId.fromString("0.0.8725045")]);
 
-        await executeNativeTransaction(associateTx);
+          await executeNativeTransaction(associateTx);
+        } else {
+          // EVM Fallback for VELO association
+          await writeContractAsync({
+            address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            abi: HTS_ABI,
+            functionName: "associate",
+            args: [address as `0x${string}`, [VELO_EVM_ADDRESS as `0x${string}`]],
+          });
+        }
         
         toast.loading("Association confirmed. Executing claim...", { id: toastId });
       } else {
