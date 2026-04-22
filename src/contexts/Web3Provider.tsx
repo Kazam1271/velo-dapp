@@ -10,7 +10,6 @@ import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { HederaJsonRpcMethod } from "@hashgraph/hedera-wallet-connect";
-import { WalletConnectSigner } from "@hashgraph/hedera-wallet-connect";
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
