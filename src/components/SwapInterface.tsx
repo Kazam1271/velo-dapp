@@ -244,7 +244,7 @@ const getTokenPriceUsd = (symbol: string | undefined, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, isWalletConnect } = useWeb3();
+  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance } = useWeb3();
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapStage, setSwapStage] = useState<"IDLE" | "WAITING_FOR_WALLET" | "VERIFYING_ON_HEDERA" | "TREASURY_SENDING">("IDLE");
 
@@ -289,24 +289,13 @@ export default function SwapInterface() {
       return;
     }
     try {
-      console.log(`[Associate] Attempting Association for ${recvToken.symbol}... Mode: ${isWalletConnect ? "Native" : "EVM"}`);
+      console.log(`[Associate] Constructing Native Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
       
-      if (isWalletConnect) {
-        const tx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId!))
-          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
+      const tx = new TokenAssociateTransaction()
+        .setAccountId(AccountId.fromString(hederaAccountId!))
+        .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
 
-        await executeNativeTransaction(tx);
-      } else {
-        // EVM Fallback: Call HTS System Contract (0x167)
-        const tokenEvmAddress = `0x${AccountId.fromString(recvToken.tokenId).toSolidityAddress()}`;
-        await writeContractAsync({
-          address: HTS_CONTRACT_ADDRESS as `0x${string}`,
-          abi: HTS_ABI,
-          functionName: "associate",
-          args: [address as `0x${string}`, [tokenEvmAddress as `0x${string}`]],
-        });
-      }
+      await executeNativeTransaction(tx);
       
       toast.success("Association Sent", {
         description: "Checking Mirror Node status...",
@@ -376,21 +365,11 @@ export default function SwapInterface() {
           description: "Signing VELO association via HashPack...",
         });
 
-        if (isWalletConnect) {
-          const associateTx = new TokenAssociateTransaction()
-            .setAccountId(AccountId.fromString(hederaAccountId))
-            .setTokenIds([TokenId.fromString("0.0.8725045")]);
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString("0.0.8725045")]);
 
-          await executeNativeTransaction(associateTx);
-        } else {
-          // EVM Fallback for VELO association
-          await writeContractAsync({
-            address: HTS_CONTRACT_ADDRESS as `0x${string}`,
-            abi: HTS_ABI,
-            functionName: "associate",
-            args: [address as `0x${string}`, [VELO_EVM_ADDRESS as `0x${string}`]],
-          });
-        }
+        await executeNativeTransaction(associateTx);
         
         toast.loading("Association confirmed. Executing claim...", { id: toastId });
       } else {
