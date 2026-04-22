@@ -116,11 +116,21 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
   const authenticate = useCallback(async () => {
     try {
-      const provider = await (modal as any).getProvider();
-      if (!provider) throw new Error("No provider available");
+      // 1. Resolve Provider (Try connector first, then modal)
+      let provider = await (connector as any)?.getProvider();
+      if (!provider) {
+        provider = await (modal as any).getProvider();
+      }
+      
+      if (!provider) throw new Error("No provider available. Please try reconnecting.");
 
-      if (!isConnected || !address || !hederaAccountId) {
-        throw new Error("Wallet not connected");
+      if (!isConnected || !address) {
+        throw new Error("Wallet not connected.");
+      }
+
+      if (!hederaAccountId) {
+        toast.info("Resolving Hedera ID...", { description: "Please wait a moment." });
+        return;
       }
 
       console.log("[Web3Inner] Requesting authentication handshake...");
