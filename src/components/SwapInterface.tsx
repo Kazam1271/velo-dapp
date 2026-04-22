@@ -270,7 +270,7 @@ export default function SwapInterface() {
   const { writeContractAsync, writeContract, data: associateHash, isPending: isAssociating } = useWriteContract();
   const { isSuccess: isAssociateSuccess } = useWaitForTransactionReceipt({ hash: associateHash });
   
-  const { sendTransactionAsync, sendTransaction, data: swapHash } = useSendTransaction();
+  const { sendTransaction, data: swapHash } = useSendTransaction();
   const { isSuccess: isSwapPaymentSuccess, isLoading: isWaitingForReceipt } = useWaitForTransactionReceipt({ hash: swapHash });
 
   const { prices } = usePriceFeed();
@@ -382,7 +382,7 @@ export default function SwapInterface() {
           const tokenAddress = `0x${TokenId.fromString(tokenId.toString()).toSolidityAddress()}`;
           
           // Find the treasury amount
-          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > BigInt(0)) as bigint;
+          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > 0n) as bigint;
           if (!treasuryAmount) throw new Error("No receiver found in token transfer");
 
           const hash = await writeContractAsync({
@@ -405,21 +405,19 @@ export default function SwapInterface() {
     // ─────────────────────────────────────────────────────────────────
     // PATH B: WalletConnect (Mobile / Remote)
     // ─────────────────────────────────────────────────────────────────
-    if (isWalletConnect && provider.session && provider.client) {
-      console.log("[Router] Using WalletConnect DAppSigner Path...");
-      const topic = provider.session.topic;
-      if (!topic || !hederaAccountId) throw new Error("No active session found.");
+    console.log("[Router] Using WalletConnect DAppSigner Path...");
+    const topic = provider.session.topic;
+    if (!topic || !hederaAccountId) throw new Error("No active session found.");
 
-      const signer = new DAppSigner(
-        AccountId.fromString(hederaAccountId),
-        provider.client,
-        topic,
-        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-      );
+    const signer = new DAppSigner(
+      AccountId.fromString(hederaAccountId),
+      provider.client,
+      topic,
+      networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+    );
 
-      await transaction.freezeWithSigner(signer);
-      return await transaction.executeWithSigner(signer);
-    }
+    await transaction.freezeWithSigner(signer);
+    return await transaction.executeWithSigner(signer);
   };
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
