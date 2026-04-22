@@ -270,7 +270,7 @@ export default function SwapInterface() {
   const { writeContractAsync, writeContract, data: associateHash, isPending: isAssociating } = useWriteContract();
   const { isSuccess: isAssociateSuccess } = useWaitForTransactionReceipt({ hash: associateHash });
   
-  const { sendTransaction, data: swapHash } = useSendTransaction();
+  const { sendTransactionAsync, sendTransaction, data: swapHash } = useSendTransaction();
   const { isSuccess: isSwapPaymentSuccess, isLoading: isWaitingForReceipt } = useWaitForTransactionReceipt({ hash: swapHash });
 
   const { prices } = usePriceFeed();
