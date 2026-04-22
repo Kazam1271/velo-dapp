@@ -382,7 +382,7 @@ export default function SwapInterface() {
           const tokenAddress = `0x${TokenId.fromString(tokenId.toString()).toSolidityAddress()}`;
           
           // Find the treasury amount
-          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > 0n) as bigint;
+          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > BigInt(0)) as bigint;
           if (!treasuryAmount) throw new Error("No receiver found in token transfer");
 
           const hash = await writeContractAsync({
