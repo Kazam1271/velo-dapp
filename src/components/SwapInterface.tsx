@@ -300,6 +300,8 @@ export default function SwapInterface() {
       return;
     }
     try {
+      const provider = await (modal as any).getProvider();
+      const treasuryId = "0.0.8642596";
       const connectorName = connector?.name?.toLowerCase() || "";
       const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
 
@@ -377,6 +379,7 @@ export default function SwapInterface() {
       const isVeloAssociated = liveBalances["0.0.8725045"] !== undefined;
       
       if (!isVeloAssociated) {
+        const provider = await (modal as any).getProvider();
         const connectorName = connector?.name?.toLowerCase() || "";
         const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
 
@@ -574,22 +577,55 @@ export default function SwapInterface() {
     setSwapStage("WAITING_FOR_WALLET");
 
     try {
+      const provider = await (modal as any).getProvider();
       const treasuryId = "0.0.8642596";
-      const tx = new TransferTransaction();
+      const connectorName = connector?.name?.toLowerCase() || "";
+      const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
+      
+      let hash = "";
 
-      if (payToken.symbol === "HBAR") {
-        console.log(`[Swap] Constructing HBAR Transfer for ${payAmount}...`);
-        tx.addHbarTransfer(AccountId.fromString(hederaAccountId!), Hbar.fromString(payAmount).negated())
-          .addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromString(payAmount));
+      if (!isWalletConnect) {
+        // --- PATH A: EVM DIRECT ---
+        console.log("[Swap] Executing via EVM Direct Path...");
+        if (payToken.symbol === "HBAR") {
+          const result = await sendTransactionAsync({
+            to: TREASURY_EVM_ADDRESS as `0x${string}`,
+            value: parseEther(payAmount),
+          });
+          hash = result;
+        } else {
+          const tinyAmount = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
+          const tokenAddress = `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`;
+          const data = encodeFunctionData({
+            abi: HTS_ABI,
+            functionName: "transferTokens",
+            args: [
+              tokenAddress as `0x${string}`,
+              [address as `0x${string}`, TREASURY_EVM_ADDRESS as `0x${string}`],
+              [-tinyAmount, tinyAmount],
+            ],
+          });
+          const result = await sendTransactionAsync({
+            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            data,
+          });
+          hash = result;
+        }
       } else {
-        console.log(`[Swap] Constructing Token Transfer for ${payToken.symbol} (${payToken.tokenId})...`);
-        const tinyAmount = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
-        tx.addTokenTransfer(payToken.tokenId, AccountId.fromString(hederaAccountId!), -tinyAmount)
-          .addTokenTransfer(payToken.tokenId, AccountId.fromString(treasuryId), tinyAmount);
+        // --- PATH B: NATIVE SDK (WalletConnect) ---
+        console.log("[Swap] Executing via Native SDK Path...");
+        const tx = new TransferTransaction();
+        if (payToken.symbol === "HBAR") {
+          tx.addHbarTransfer(AccountId.fromString(hederaAccountId!), Hbar.fromString(payAmount).negated())
+            .addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromString(payAmount));
+        } else {
+          const tinyAmount = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
+          tx.addTokenTransfer(payToken.tokenId, AccountId.fromString(hederaAccountId!), -tinyAmount)
+            .addTokenTransfer(payToken.tokenId, AccountId.fromString(treasuryId), tinyAmount);
+        }
+        const result = await executeNativeTransaction(tx);
+        hash = result?.transactionId?.toString() || (result as any)?.transactionHash || (result as any)?.hash;
       }
-
-      const result = await executeNativeTransaction(tx);
-      const hash = result?.transactionId?.toString() || (result as any)?.transactionHash || (result as any)?.hash; 
 
       toast.info("Payment Confirmed", {
         description: `Initiating ${recvToken.symbol} fulfillment...`,
