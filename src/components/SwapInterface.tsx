@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useWeb3, modal } from "@/contexts/Web3Provider";
+import { useWeb3 } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -12,14 +12,44 @@ import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { 
   TokenAssociateTransaction, 
-  TransferTransaction, 
+  ContractExecuteTransaction,
   AccountId, 
   TokenId, 
-  Hbar, 
-  Transaction,
-  LedgerId
+  Hbar
 } from "@hiero-ledger/sdk";
-import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
+
+// ─────────────────────────────────────────────────────────────────
+// Constants & ABI
+// ─────────────────────────────────────────────────────────────────
+const SAUCER_ROUTER_V2_NATIVE = "0.0.3945930";
+const SAUCER_ROUTER_V2_EVM = "0x00000000000000000000000000000000003c37ea";
+const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
+
+const ROUTER_V2_ABI = [
+  {
+    "inputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "tokenIn", "type": "address" },
+          { "internalType": "address", "name": "tokenOut", "type": "address" },
+          { "internalType": "uint24", "name": "fee", "type": "uint24" },
+          { "internalType": "address", "name": "recipient", "type": "address" },
+          { "internalType": "uint256", "name": "deadline", "type": "uint256" },
+          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
+          { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" },
+          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
+        ],
+        "internalType": "struct IV3SwapRouter.ExactInputSingleParams",
+        "name": "params",
+        "type": "tuple"
+      }
+    ],
+    "name": "exactInputSingle",
+    "outputs": [{ "internalType": "uint256", "name": "amountOut", "type": "uint256" }],
+    "stateMutability": "payable",
+    "type": "function"
+  }
+];
 
 // ─────────────────────────────────────────────────────────────────
 // Helper: Price Formatting
@@ -60,50 +90,29 @@ export default function SwapInterface() {
     return liveBalances[recvToken.tokenId] !== undefined;
   }, [recvToken, liveBalances]);
 
-  const executeNativeTransaction = async (transaction: Transaction) => {
-    const provider = await (modal as any).getProvider();
-    const topic = provider?.session?.topic;
-    
-    if (!hederaAccountId) throw new Error("No Hedera Account ID found.");
-
-    if (topic && provider.client) {
-      const signer = new DAppSigner(
-        AccountId.fromString(hederaAccountId),
-        provider.client,
-        topic,
-        LedgerId.TESTNET
-      );
-      await transaction.freezeWithSigner(signer);
-      return await transaction.executeWithSigner(signer);
-    } else {
-      if (!walletInterface?.executeTransaction) {
-        throw new Error("Connected wallet does not support native transaction execution.");
-      }
-      return await walletInterface.executeTransaction(transaction);
-    }
-  };
-
   const handleClaimAirdrop = async () => {
     if (!isConnected || isClaiming || hasClaimed || !hederaAccountId) return;
     setIsClaiming(true);
-    const toastId = toast.loading("Connecting to Velo Treasury...");
-    
+    const toastId = toast.loading("Claiming Early Adopter Bonus...");
     try {
       const response = await fetch("/api/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId: hederaAccountId }),
       });
-      
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Claim failed");
 
       if (data.associationRequired) {
-        toast.loading("Association Required", { id: toastId, description: "Please associate VELO token first." });
+        toast.loading("Association Required", { id: toastId, description: "Please associate VELO first." });
         const associateTx = new TokenAssociateTransaction()
           .setAccountId(AccountId.fromString(hederaAccountId))
           .setTokenIds([TokenId.fromString(data.tokenId)]);
-        await executeNativeTransaction(associateTx);
+        
+        const signer = await walletInterface?.getSigner();
+        await associateTx.freezeWithSigner(signer);
+        await associateTx.executeWithSigner(signer);
+        
         setIsClaiming(false);
         handleClaimAirdrop();
         return;
@@ -112,10 +121,7 @@ export default function SwapInterface() {
       toast.success("AIRDROP CLAIMED!", {
         id: toastId,
         description: "Funds have arrived from the Velo Treasury.",
-        action: {
-          label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank"),
-        },
+        action: { label: "View HashScan", onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank") },
       });
       setHasClaimed(true);
       refreshBalances();
@@ -163,95 +169,79 @@ export default function SwapInterface() {
   }, [payAmount, payToken, recvToken, prices]);
 
   const handleSwap = async () => {
-    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !hederaAccountId) return;
+    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !walletInterface) return;
 
     setIsSwapping(true);
-    const toastId = toast.loading("Initializing Atomic Treasury Swap...");
+    const toastId = toast.loading(`Initializing Swap via ${walletInterface.walletType.toUpperCase()} Path...`);
 
     try {
-      const payAmt = parseFloat(payAmount);
-      const recvAmt = parseFloat(receiveAmount);
-      const treasuryId = "0.0.8642596";
-
       // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
         const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setAccountId(AccountId.fromString(hederaAccountId!))
           .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        await executeNativeTransaction(associateTx);
+        const signer = await walletInterface.getSigner();
+        await associateTx.freezeWithSigner(signer);
+        await associateTx.executeWithSigner(signer);
       }
 
-      // 2. Build the Atomic Transfer Transaction
-      const tx = new TransferTransaction();
-      
-      // User sends PayToken -> Treasury
-      if (payToken.symbol === "HBAR") {
-        const tinybars = Math.floor(payAmt * 1e8);
-        tx.addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(tinybars).negated())
-          .addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromTinybars(tinybars));
-      } else {
-        const amount = Math.floor(payAmt * Math.pow(10, payToken.decimals));
-        tx.addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(hederaAccountId), -amount)
-          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(treasuryId), amount);
-      }
+      // 2. Prepare Swap Data
+      const type = walletInterface.walletType;
+      const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
+      const amountIn = ethers.parseUnits(payAmount, payToken.decimals);
+      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 99n) / 100n; // 1% slippage
+      const deadline = Math.floor(Date.now() / 1000) + 1200;
 
-      // Treasury sends RecvToken -> User
-      if (recvToken.symbol === "HBAR") {
-        const tinybars = Math.floor(recvAmt * 1e8);
-        tx.addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromTinybars(tinybars).negated())
-          .addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(tinybars));
-      } else {
-        const amount = Math.floor(recvAmt * Math.pow(10, recvToken.decimals));
-        tx.addTokenTransfer(TokenId.fromString(recvToken.tokenId), AccountId.fromString(treasuryId), -amount)
-          .addTokenTransfer(TokenId.fromString(recvToken.tokenId), AccountId.fromString(hederaAccountId), amount);
-      }
+      const params = {
+        tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+        tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+        fee: 3000,
+        recipient: userEvmAddress,
+        deadline: BigInt(deadline),
+        amountIn: amountIn,
+        amountOutMinimum: amountOutMin,
+        sqrtPriceLimitX96: 0n
+      };
 
-      // 3. Sign via User's Wallet
-      toast.loading("Awaiting your signature...", { id: toastId });
-      
-      const provider = await (modal as any).getProvider();
-      const topic = provider?.session?.topic;
-      let signedTx;
+      let result;
 
-      if (topic && provider.client) {
-        // WalletConnect Path
-        const signer = new DAppSigner(
-          AccountId.fromString(hederaAccountId),
-          provider.client,
-          topic,
-          LedgerId.TESTNET
-        );
-        await tx.freezeWithSigner(signer);
-        signedTx = await signer.signTransaction(tx);
+      if (type === "metamask") {
+        // Path A: MetaMask / EVM RPC
+        const abi = new ethers.Interface(ROUTER_V2_ABI);
+        const data = abi.encodeFunctionData("exactInputSingle", [params]);
+        const value = payToken.symbol === "HBAR" ? "0x" + amountIn.toString(16) : "0x0";
+
+        result = await walletInterface.executeSwap("metamask", {
+          from: address,
+          to: SAUCER_ROUTER_V2_EVM,
+          data,
+          value
+        });
       } else {
-        // Extension Path
-        if (!walletInterface?.getSigner) throw new Error("Wallet does not support signing.");
+        // Path B: Hedera Native RPC
+        const abi = new ethers.Interface(ROUTER_V2_ABI);
+        const data = abi.encodeFunctionData("exactInputSingle", [params]);
+        
+        const tx = new ContractExecuteTransaction()
+          .setContractId(SAUCER_ROUTER_V2_NATIVE)
+          .setGas(1000000)
+          .setFunctionParameters(ethers.getBytes(data));
+
+        if (payToken.symbol === "HBAR") tx.setPayableAmount(Hbar.fromTinybars(Number(amountIn)));
+
         const signer = await walletInterface.getSigner();
         await tx.freezeWithSigner(signer);
-        signedTx = await signer.signTransaction(tx);
+        const bytes = tx.toBytes();
+        const base64 = Buffer.from(bytes).toString("base64");
+
+        result = await walletInterface.executeSwap("hedera", base64);
       }
-
-      // 4. Send to Velo Backend for Treasury Co-Signature & Execution
-      toast.loading("Treasury co-signing & executing...", { id: toastId });
-      const txBytes = Buffer.from(signedTx.toBytes()).toString('hex');
-      
-      const response = await fetch('/api/execute-swap', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transactionBytes: txBytes })
-      });
-
-      const result = await response.json();
-      if (!result.success) throw new Error(result.error);
 
       toast.success("SWAP SUCCESSFUL", {
         id: toastId,
-        description: `Successfully swapped via Velo Treasury Brokerage.`,
-        action: {
-          label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.txId}`, "_blank"),
-        },
+        description: `Successfully swapped via SaucerSwap V2 ${type === "metamask" ? "EVM" : "Native"} Engine.`,
+        action: { label: "View HashScan", onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.transactionId}`, "_blank") },
       });
 
       refreshBalances();
