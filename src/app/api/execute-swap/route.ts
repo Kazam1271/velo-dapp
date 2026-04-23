@@ -1,4 +1,4 @@
-import { Transaction, Client, PrivateKey, TransferTransaction, AccountId, TokenId, Hbar } from "@hashgraph/sdk";
+import { Transaction, Client, PrivateKey, TransferTransaction, AccountId, TokenId, Hbar } from "@hiero-ledger/sdk";
 import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
