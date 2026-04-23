@@ -64,7 +64,7 @@ export const modal = createAppKit({
       events: ["chainChanged", "accountsChanged"],
     },
   },
-});
+} as any);
 
 const queryClient = new QueryClient();
 
