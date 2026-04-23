@@ -97,7 +97,7 @@ const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   const { open } = useAppKit();
   const { address, isConnected, connector } = useAccount();
-  const { hederaAccountId } = useHederaAccount(address);
+  const { hederaAccountId } = useHederaAccount(address || null);
   const [nativeBalance, setNativeBalance] = useState("0.00");
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
 
