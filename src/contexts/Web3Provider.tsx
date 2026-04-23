@@ -101,10 +101,12 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   const [nativeBalance, setNativeBalance] = useState("0.00");
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
 
+  const { disconnect: wagmiDisconnect } = useDisconnect();
+
   const fullDisconnect = useCallback(() => {
     localStorage.setItem(VELO_MANUAL_DISCONNECT_KEY, "true");
-    modal.disconnect();
-  }, []);
+    wagmiDisconnect();
+  }, [wagmiDisconnect]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
