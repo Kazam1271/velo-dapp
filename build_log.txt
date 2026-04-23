@@ -1,0 +1,36 @@
+
+> velo@0.1.0 build
+> next build --webpack
+
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+  Skipping creating a lockfile at C:\Users\jolom\OneDrive\Desktop\velo\.next\lock because we're using WASM bindings
+▲ Next.js 16.2.4 (webpack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+⚠ Compiled with warnings in 11.4s
+
+./node_modules/@metamask/sdk/dist/node/es/metamask-sdk.js
+Module not found: Can't resolve 'encoding' in 'C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@metamask\sdk\dist\node\es'
+
+Import trace for requested module:
+./node_modules/@metamask/sdk/dist/node/es/metamask-sdk.js
+./node_modules/@wagmi/connectors/dist/esm/metaMask.js
+./node_modules/@wagmi/connectors/dist/esm/exports/index.js
+./node_modules/@reown/appkit-adapter-wagmi/dist/esm/src/client.js
+./node_modules/@reown/appkit-adapter-wagmi/dist/esm/src/index.js
+./src/contexts/Web3Provider.tsx
+
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+✓ Compiled successfully in 20.9s
+  Running TypeScript ...
+⚠ Attempted to load @next/swc-win32-x64-msvc, but an error occurred: \\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node is not a valid Win32 application.
+\\?\C:\Users\jolom\OneDrive\Desktop\velo\node_modules\@next\swc-win32-x64-msvc\next-swc.win32-x64-msvc.node
+Error: invalid type: unit value, expected usize
+Next.js build worker exited with code: 1 and signal: null
