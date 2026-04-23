@@ -47,7 +47,8 @@ export const modal = createAppKit({
       namespace: hederaNamespace
     })
   ],
-  networks: networks as [any, ...any[]],
+  networks: [...networks, ...hederaNetworks] as [any, ...any[]],
+  allWallets: "SHOW",
   features: {
     analytics: true,
     socials: ["google", "apple", "facebook"],
