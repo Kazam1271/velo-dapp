@@ -7,7 +7,7 @@ import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useSendTransaction, useWalletClient } from "wagmi";
-import { parseEther } from "viem";
+import { parseEther, encodeFunctionData } from "viem";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
@@ -40,7 +40,7 @@ const HTS_ABI = [
       { "internalType": "address", "name": "account", "type": "address" },
       { "internalType": "address", "name": "tokens", "type": "address[]" }
     ],
-    "name": "associate",
+    "name": "associateTokens",
     "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -345,11 +345,15 @@ export default function SwapInterface() {
           `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
         );
         
-        const hash = await writeContractAsync({
-          address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+        const data = encodeFunctionData({
           abi: HTS_ABI,
-          functionName: "associate",
+          functionName: "associateTokens",
           args: [address as `0x${string}`, tokens],
+        });
+
+        const hash = await sendTransactionAsync({
+          to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+          data,
         });
         return { transactionId: hash, hash };
       }
@@ -385,8 +389,7 @@ export default function SwapInterface() {
           const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > 0n) as bigint;
           if (!treasuryAmount) throw new Error("No receiver found in token transfer");
 
-          const hash = await writeContractAsync({
-            address: HTS_CONTRACT_ADDRESS as `0x${string}`,
+          const data = encodeFunctionData({
             abi: HTS_ABI,
             functionName: "transferTokens",
             args: [
@@ -394,6 +397,11 @@ export default function SwapInterface() {
               [address as `0x${string}`, TREASURY_EVM_ADDRESS as `0x${string}`], 
               [-(treasuryAmount), treasuryAmount]
             ],
+          });
+
+          const hash = await sendTransactionAsync({
+            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            data,
           });
           return { transactionId: hash, hash };
         }
