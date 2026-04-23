@@ -30,9 +30,9 @@ const metadata = {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// 2. AppKit Initialization
+// 2. AppKit Initialization (Client-Side Only)
 // ─────────────────────────────────────────────────────────────────
-export const modal = createAppKit({
+export const modal = typeof window !== "undefined" ? createAppKit({
   metadata,
   adapters: [
     wagmiAdapter,
@@ -52,15 +52,19 @@ export const modal = createAppKit({
     "--w3m-accent": "#06b6d4",
     "--w3m-border-radius-master": "16px",
   },
-  allWallets: "SHOW",
   // Request official Hedera namespace permissions
   optionalNamespaces: {
-    hedera: {
-      ...hederaNamespace,
+    [hederaNamespace]: {
+      methods: [
+        "hedera_signAndExecuteTransaction",
+        "hedera_signTransaction",
+        "hedera_signMessage",
+      ],
       chains: [networkType === "mainnet" ? "hedera:295" : "hedera:296"],
+      events: ["chainChanged", "accountsChanged"],
     }
   },
-} as any);
+} as any) : null as any;
 
 const queryClient = new QueryClient();
 
