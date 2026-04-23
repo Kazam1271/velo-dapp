@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import { createAppKit, useAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
-import { hedera, hederaTestnet } from "@reown/appkit/networks";
+import { hederaTestnet } from "@reown/appkit/networks";
 import { WagmiProvider, useBalance, useDisconnect, useAccount, useSwitchChain } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
@@ -57,7 +57,7 @@ export const modal = createAppKit({
   // Request official Hedera namespace permissions
   requiredNamespaces: {
     hedera: {
-      chains: [networkType === "mainnet" ? "hedera:295" : "hedera:296"],
+      chains: ["hedera:296"],
       methods: [
         "hedera_signAndExecuteTransaction",
         "hedera_signTransaction",
@@ -139,11 +139,11 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isConnected || !chainId) return;
     
-    const expectedChainId = networkType === "mainnet" ? 295 : 296;
+    const expectedChainId = 296;
     if (chainId !== expectedChainId) {
       console.warn(`[Web3Inner] Network Mismatch: Expected ${expectedChainId}, got ${chainId}`);
       toast.warning("Wrong Network", {
-        description: `Please switch to Hedera ${networkType === "mainnet" ? "Mainnet" : "Testnet"}.`,
+        description: "Please switch to Hedera Testnet.",
         action: {
           label: "Switch Now",
           onClick: () => switchChain?.({ chainId: expectedChainId }),
@@ -191,7 +191,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
             AccountId.fromString(hederaAccountId),
             provider.client,
             provider.session.topic,
-            networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+            LedgerId.TESTNET
           );
         }
         throw new Error("DAppSigner requires WalletConnect session.");
