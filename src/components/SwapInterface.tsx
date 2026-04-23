@@ -1,12 +1,11 @@
 "use client";
 
-import { ArrowUpDown, ChevronDown, Info, Search, X, TrendingUp, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
-import { useRef, useState, useEffect, useCallback, useMemo } from "react";
+import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw } from "lucide-react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useWeb3, modal } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
@@ -19,7 +18,6 @@ import {
   TokenId, 
   Hbar, 
   Transaction,
-  TransactionId,
   LedgerId
 } from "@hiero-ledger/sdk";
 import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
@@ -27,13 +25,7 @@ import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 // ─────────────────────────────────────────────────────────────────
 // Constants & ABI
 // ─────────────────────────────────────────────────────────────────
-const TREASURY_EVM_ADDRESS = "0x000000000000000000000000000000000083E0A4"; // 0.0.8642596
-const HTS_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000167";
-const VELO_EVM_ADDRESS = "0x0000000000000000000000000000000000852235"; // 0.0.8725045
-
-// SaucerSwap V2 Testnet Constants
-const SAUCER_QUOTER_V2 = "0x00000000000000000000000000000000003C34AF"; // 0.0.3945935
-const SAUCER_ROUTER_V2 = "0x00000000000000000000000000000000003C34AA"; // 0.0.3945930
+const SAUCER_ROUTER_V2 = "0.0.3945930";
 const VELO_FEE_TREASURY = "0.0.8674583"; // Updated per user request
 const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
 
@@ -83,13 +75,13 @@ const ROUTER_V2_ABI = [
 // Helper: Price Formatting
 // ─────────────────────────────────────────────────────────────────
 const getTokenPriceUsd = (symbol: string, prices: any) => {
-  if (symbol === "HBAR") return prices.hbar || 0.09;
-  if (symbol === "VELO") return prices.velo || 1.0;
-  if (symbol === "BONZO") return prices.bonzo || 0.02;
-  if (symbol === "SAUCE") return prices.sauce || 0.06;
-  if (symbol === "PACK") return prices.pack || 0.05;
-  if (symbol === "USDC") return 1.0;
-  if (symbol === "USDT") return 1.0;
+  const s = symbol.toLowerCase();
+  if (s === "hbar") return prices.hbar || 0.09;
+  if (s === "velo") return prices.velo || 1.0;
+  if (s === "bonzo") return prices.bonzo || 0.02;
+  if (s === "sauce") return prices.sauce || 0.06;
+  if (s === "pack") return prices.pack || 0.05;
+  if (s === "usdc" || s === "usdt") return 1.0;
   return 0;
 };
 
@@ -97,9 +89,8 @@ const getTokenPriceUsd = (symbol: string, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, connector, walletInterface } = useWeb3();
+  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, walletInterface } = useWeb3();
   const [isSwapping, setIsSwapping] = useState(false);
-  const [swapStage, setSwapStage] = useState<"IDLE" | "WAITING_FOR_WALLET" | "VERIFYING_ON_HEDERA" | "TREASURY_SENDING">("IDLE");
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
   const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]); // HBAR
@@ -227,26 +218,22 @@ export default function SwapInterface() {
     if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !hederaAccountId) return;
 
     setIsSwapping(true);
-    setSwapStage("WAITING_FOR_WALLET");
     const toastId = toast.loading("Initializing Native Swap Engine...");
 
     try {
-      // 1. Association Check
-      const targetTokenId = recvToken.tokenId;
-      if (targetTokenId !== "NATIVE" && !isAssociated) {
+      if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
         const associateTx = new TokenAssociateTransaction()
           .setAccountId(AccountId.fromString(hederaAccountId))
-          .setTokenIds([TokenId.fromString(targetTokenId)]);
+          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
         await executeNativeTransaction(associateTx);
       }
 
-      // 2. Math & Formatting
       const tinyTotal = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
       const feeAmount = (tinyTotal * 25n) / 10000n;
       const swapAmount = tinyTotal - feeAmount;
       const deadline = Math.floor(Date.now() / 1000) + 1200;
-      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
+      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 99n) / 100n; // 1% slippage
       const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
 
       const params = {
@@ -260,7 +247,6 @@ export default function SwapInterface() {
         sqrtPriceLimitX96: 0n
       };
 
-      // 3. Step 1: Velo Service Fee (Native Transfer)
       toast.loading("Step 1/2: Sending 0.25% Velo Fee...", { id: toastId });
       const feeTx = new TransferTransaction();
       if (payToken.symbol === "HBAR") {
@@ -272,23 +258,22 @@ export default function SwapInterface() {
       }
       await executeNativeTransaction(feeTx);
 
-      // 4. Step 2: Swap Execution (Native Contract Call)
       toast.loading("Step 2/2: Executing SaucerSwap Router...", { id: toastId });
       const abi = new ethers.Interface(ROUTER_V2_ABI);
       const swapEncoded = abi.encodeFunctionData('exactInputSingle', [params]);
       const refundEncoded = abi.encodeFunctionData('refundETH', []);
       const multicallEncoded = abi.encodeFunctionData('multicall', [[swapEncoded, refundEncoded]]);
       
-      const encodedData = new Uint8Array(multicallEncoded.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16)));
+      const encodedData = ethers.getBytes(multicallEncoded);
       const swapTx = new ContractExecuteTransaction()
-        .setContractId(TokenId.fromString("0.0.3945930").toString())
+        .setContractId(SAUCER_ROUTER_V2)
         .setGas(1500000)
         .setFunctionParameters(encodedData);
 
       if (payToken.symbol === "HBAR") swapTx.setPayableAmount(Hbar.fromTinybars(Number(swapAmount)));
 
       const result = await executeNativeTransaction(swapTx);
-      const hash = result.transactionId ? result.transactionId.toString() : result.hash;
+      const hash = result.transactionId ? result.transactionId.toString() : "";
 
       toast.success("SWAP SUCCESSFUL", {
         id: toastId,
@@ -306,7 +291,6 @@ export default function SwapInterface() {
       toast.error("Swap Failed", { id: toastId, description: err.message });
     } finally {
       setIsSwapping(false);
-      setSwapStage("IDLE");
     }
   };
 
