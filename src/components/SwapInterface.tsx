@@ -267,10 +267,10 @@ export default function SwapInterface() {
 
   // ── Association Logic (Real) ──────────────────────────────
   const [isAssociated, setIsAssociated] = useState(false);
-  const { writeContractAsync, writeContract, data: associateHash, isPending: isAssociating } = useWriteContract();
+  const { writeContractAsync, writeContract, data: associateHash, isPending: isAssociating } = useWriteContract({ chainId: 296 });
   const { isSuccess: isAssociateSuccess } = useWaitForTransactionReceipt({ hash: associateHash });
   
-  const { sendTransactionAsync, sendTransaction, data: swapHash } = useSendTransaction();
+  const { sendTransactionAsync, sendTransaction, data: swapHash } = useSendTransaction({ chainId: 296 });
   const { isSuccess: isSwapPaymentSuccess, isLoading: isWaitingForReceipt } = useWaitForTransactionReceipt({ hash: swapHash });
 
   const { prices } = usePriceFeed();
