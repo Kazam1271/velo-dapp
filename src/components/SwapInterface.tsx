@@ -281,6 +281,13 @@ export default function SwapInterface() {
   const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
   const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [hasClaimed, setHasClaimed] = useState(false);
+  const [payUsd, setPayUsd] = useState("0.00");
+  const [receiveUsd, setReceiveUsd] = useState("0.00");
+
+  const VELO_TOKEN_ID = "0.0.8725045";
+
   useEffect(() => {
     if (recvToken.tokenId === "NATIVE") {
       setIsAssociated(true);
@@ -314,37 +321,89 @@ export default function SwapInterface() {
     }
   };
 
+  const handleClaimAirdrop = async () => {
+    if (!isConnected || !hederaAccountId || isClaiming || hasClaimed) return;
+    setIsClaiming(true);
+    const toastId = toast.loading("Preparing Claim Flow...");
+
+    try {
+      // 1. Check & Handle Association for VELO
+      if (liveBalances[VELO_TOKEN_ID] === undefined) {
+        toast.loading("Association Required", { id: toastId, description: "Associating VELO token..." });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString(VELO_TOKEN_ID)]);
+        await executeNativeTransaction(associateTx);
+        toast.loading("Association confirmed. Executing claim...", { id: toastId });
+      }
+
+      // 2. Execute Backend Claim
+      const resp = await fetch("/api/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: hederaAccountId }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.message || "Airdrop failed");
+
+      toast.success("500 VELO Successfully Sent!", {
+        id: toastId,
+        description: "Funds have arrived from the Velo Treasury.",
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank"),
+        },
+      });
+      setHasClaimed(true);
+      refreshBalances();
+    } catch (err: any) {
+      toast.error("Claim Failed", { id: toastId, description: err.message });
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
       setReceiveAmount("");
+      setPayUsd("0.00");
+      setReceiveUsd("0.00");
       setIsQuoting(false);
       return;
     }
+
+    // Update Pay USD
+    const payPrice = getTokenPriceUsd(payToken.symbol, prices);
+    setPayUsd((amount * payPrice).toFixed(2));
+
     setIsQuoting(true);
     const handler = setTimeout(async () => {
+      let finalReceive = "0.00";
       if (payToken.symbol === "HBAR" && recvToken.symbol === "VELO") {
-        setReceiveAmount((amount * 10).toFixed(2));
-        setIsQuoting(false);
+        finalReceive = (amount * 10).toFixed(2);
       } else if (payToken.symbol === "VELO" && recvToken.symbol === "HBAR") {
-        setReceiveAmount((amount * 0.1).toFixed(6));
-        setIsQuoting(false);
+        finalReceive = (amount * 0.1).toFixed(6);
       } else {
         try {
           const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
           if (quote) {
-            setReceiveAmount(parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4));
+            finalReceive = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
           } else {
             const p1 = getTokenPriceUsd(payToken.symbol, prices);
             const p2 = getTokenPriceUsd(recvToken.symbol, prices);
-            if (p1 > 0 && p2 > 0) setReceiveAmount(((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4));
+            if (p1 > 0 && p2 > 0) finalReceive = ((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4);
           }
         } catch (err) {
           console.error("Quoting failed:", err);
-        } finally {
-          setIsQuoting(false);
         }
       }
+      setReceiveAmount(finalReceive);
+      
+      // Update Receive USD
+      const recvPrice = getTokenPriceUsd(recvToken.symbol, prices);
+      setReceiveUsd((parseFloat(finalReceive) * recvPrice).toFixed(2));
+      setIsQuoting(false);
     }, 600);
     return () => clearTimeout(handler);
   }, [payAmount, payToken, recvToken, prices]);
@@ -465,6 +524,43 @@ export default function SwapInterface() {
 
   return (
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4">
+      {/* ── Welcome Promo Banner ─────────────────────────────── */}
+      {isConnected && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-velo-cyan/10 border border-velo-cyan/30 rounded-2xl p-4 flex items-center justify-between gap-4 overflow-hidden relative group"
+        >
+          <div className="absolute top-0 right-0 w-32 h-full bg-velo-cyan/5 blur-3xl -z-10 group-hover:bg-velo-cyan/10 transition-colors" />
+
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-velo-cyan/20 flex items-center justify-center text-velo-cyan shadow-[0_0_15px_rgba(6,182,212,0.2)]">
+              <TrendingUp size={20} />
+            </div>
+            <div>
+              <div className="text-xs font-bold text-velo-cyan uppercase tracking-wider">Early Adopter Bonus</div>
+              <div className="text-white font-semibold flex items-center gap-1.5">
+                Claim 500 VELO
+                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400">Gift</span>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleClaimAirdrop}
+            disabled={isClaiming || hasClaimed}
+            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2
+              ${hasClaimed ? "bg-velo-green/20 text-velo-green border border-velo-green/30 cursor-default" :
+                isClaiming ? "bg-velo-cyan text-[#0b0e14] animate-pulse-cyan" :
+                "bg-velo-cyan text-[#0b0e14] hover:bg-cyan-400 glow-cyan active:scale-95 animate-pulse-cyan"}
+            `}
+          >
+            {isClaiming && <RefreshCw size={14} className="animate-spin" />}
+            {hasClaimed ? "✓ CLAIMED" : "CLAIM"}
+          </button>
+        </motion.div>
+      )}
+
       <div className="bg-velo-card border border-velo-border rounded-3xl p-4 sm:p-6 shadow-2xl w-full relative">
         <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-2 relative">
           <div className="text-sm text-gray-400 mb-2">You Pay</div>
@@ -478,6 +574,12 @@ export default function SwapInterface() {
             />
             <TokenDropdown label="Pay" selected={payToken} disabledSymbol={recvToken.symbol} onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
           </div>
+          {/* USD Calculation */}
+          {payAmount && (
+            <div className="text-xs text-gray-500 mt-1 px-1">
+              ≈ ${payUsd} USD
+            </div>
+          )}
           <div className="flex justify-between items-center text-sm text-gray-400 mt-5 px-1">
             <div className="flex items-center gap-2">
               <span>Balance:</span>
@@ -504,6 +606,12 @@ export default function SwapInterface() {
             <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
             <TokenDropdown label="Receive" selected={recvToken} disabledSymbol={payToken.symbol} onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
           </div>
+          {/* USD Calculation */}
+          {receiveAmount && (
+            <div className="text-xs text-gray-500 mt-1 px-1">
+              ≈ ${receiveUsd} USD
+            </div>
+          )}
           <div className="flex items-center gap-2 text-sm text-gray-400 mt-3 px-1">
             <span>Balance:</span>
             <span className="text-velo-cyan">{recvInfo.value}</span>

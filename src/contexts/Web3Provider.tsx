@@ -54,17 +54,9 @@ export const modal = createAppKit({
     "--w3m-border-radius-master": "16px",
   },
   allWallets: "SHOW",
-  // Force the wallet to acknowledge these methods during the initial connection
+  // REQUIRED: Use the official export to force the correct handshake
   requiredNamespaces: {
-    hedera: {
-      chains: ["hedera:testnet", "hedera:296"], 
-      methods: [
-        "hedera_signAndExecuteTransaction",
-        "hedera_signTransaction",
-        "hedera_signMessage",
-      ],
-      events: ["chainChanged", "accountsChanged"],
-    },
+    hedera: hederaNamespace
   },
 } as any);
 
