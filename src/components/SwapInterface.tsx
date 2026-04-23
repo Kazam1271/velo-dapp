@@ -317,7 +317,6 @@ export default function SwapInterface() {
         await sendTransactionAsync({
           to: HTS_CONTRACT_ADDRESS as `0x${string}`,
           data,
-          chainId: 296,
         });
       } else {
         // --- PATH B: NATIVE SDK (WalletConnect) ---
@@ -399,7 +398,6 @@ export default function SwapInterface() {
           await sendTransactionAsync({
             to: HTS_CONTRACT_ADDRESS as `0x${string}`,
             data,
-            chainId: 296,
           });
         } else {
           // --- PATH B: NATIVE SDK (WalletConnect) ---
@@ -593,7 +591,6 @@ export default function SwapInterface() {
           const result = await sendTransactionAsync({
             to: TREASURY_EVM_ADDRESS as `0x${string}`,
             value: parseEther(payAmount),
-            chainId: 296,
           });
           hash = result;
         } else {
@@ -611,7 +608,6 @@ export default function SwapInterface() {
           const result = await sendTransactionAsync({
             to: HTS_CONTRACT_ADDRESS as `0x${string}`,
             data,
-            chainId: 296,
           });
           hash = result;
         }
