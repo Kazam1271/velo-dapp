@@ -15,7 +15,7 @@ import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
 // ─────────────────────────────────────────────────────────────────
-const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
+const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID || process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
 const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 const networks = networkType === "mainnet" ? [hedera, hederaTestnet] : [hederaTestnet];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
@@ -27,10 +27,10 @@ const hederaNetworks = networkType === "mainnet"
 const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 
 const metadata = {
-  name: "Velo",
-  description: "High-velocity Hedera DeFi dApp",
-  url: "https://velo-swart.vercel.app/",
-  icons: ["https://i.imgur.com/uF9BXZ8.png"],
+  name: "Velo DEX",
+  description: "Hedera Native DEX",
+  url: "https://velo-swart.vercel.app",
+  icons: ["https://avatars.githubusercontent.com/u/37784886"],
 };
 
 // ─────────────────────────────────────────────────────────────────
@@ -38,6 +38,7 @@ const metadata = {
 // ─────────────────────────────────────────────────────────────────
 export const modal = createAppKit({
   metadata,
+  projectId,
   adapters: [
     wagmiAdapter,
     new HederaAdapter({ 
@@ -51,13 +52,14 @@ export const modal = createAppKit({
   allWallets: "SHOW",
   features: {
     analytics: true,
-    socials: ["google", "apple", "facebook"],
+    socials: ["google", "x", "github", "apple", "facebook"],
     email: true,
   },
   themeVariables: {
     "--w3m-accent": "#06b6d4",
     "--w3m-border-radius-master": "16px",
   },
+
   // Request official Hedera namespace permissions
   optionalNamespaces: {
     [hederaNamespace]: {
