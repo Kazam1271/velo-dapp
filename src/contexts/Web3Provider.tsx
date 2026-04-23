@@ -103,6 +103,34 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
   const { disconnect: wagmiDisconnect } = useDisconnect();
 
+  const fetchBalance = useCallback(async () => {
+    if (!hederaAccountId) {
+      setNativeBalance("0.00");
+      return;
+    }
+    setIsRefreshingBalance(true);
+    try {
+      const response = await fetch(
+        `https://testnet.mirrornode.hedera.com/api/v1/accounts/${hederaAccountId}`
+      );
+      if (response.ok) {
+        const data = await response.json();
+        const rawBalance = data.balance?.balance || 0;
+        setNativeBalance((rawBalance / 100000000).toFixed(2));
+      }
+    } catch (error) {
+      console.error("[Web3Provider] Failed to fetch balance:", error);
+    } finally {
+      setIsRefreshingBalance(false);
+    }
+  }, [hederaAccountId]);
+
+  useEffect(() => {
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 10000);
+    return () => clearInterval(interval);
+  }, [fetchBalance]);
+
   const fullDisconnect = useCallback(() => {
     localStorage.setItem(VELO_MANUAL_DISCONNECT_KEY, "true");
     wagmiDisconnect();
