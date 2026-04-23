@@ -28,7 +28,7 @@ const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 
 const metadata = {
   name: "Velo DEX",
-  description: "Hedera Native DEX",
+  description: "Velo - Hedera Native DEX",
   url: "https://velo-swart.vercel.app",
   icons: ["https://avatars.githubusercontent.com/u/37784886"],
 };
@@ -50,10 +50,11 @@ export const modal = createAppKit({
   ],
   networks: [...networks, ...hederaNativeNetworks] as [any, ...any[]],
   allWallets: "SHOW",
+
   features: {
     analytics: true,
     socials: ["google", "x", "github", "apple", "facebook"],
-    email: true,
+    email: true, // Enables social login (Logins list)
   },
   themeVariables: {
     "--w3m-accent": "#06b6d4",
@@ -71,9 +72,6 @@ export const modal = createAppKit({
     }
   },
 } as any);
-
-
-
 
 const queryClient = new QueryClient();
 
@@ -134,13 +132,13 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     try {
       // 1. Get the provider (Try connector first, then modal fallback)
       let provider = await (connector as any)?.getProvider();
-      if (!provider || !provider.session) {
-        console.log("[Web3Inner] Connector provider missing session, checking modal...");
+      if (!provider) {
+        console.log("[Web3Inner] Connector provider missing, checking modal...");
         provider = await (modal as any).getProvider();
       }
       
-      if (!provider || !provider.session) {
-        throw new Error("Wallet connected but no communication session found. Please reconnect.");
+      if (!provider) {
+        throw new Error("No provider available. Please try reconnecting.");
       }
 
       if (!isConnected || !address) {
@@ -153,20 +151,22 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       }
 
       console.log("[Web3Inner] Requesting authentication handshake...");
-      const message = `Velo DEX Authentication\nTimestamp: ${Date.now()}`;
+      const message = `Velo Auth: ${new Date().toISOString()}`;
 
       // 2. Initialize the official DAppSigner
-      // We use the active session topic to ensure the popup goes to the right wallet
+      // We use the active session topic if it exists (WalletConnect) 
+      // OR an empty string for Injected Extensions (HashPack Desktop)
+      const topic = (provider as any).session?.topic || "";
+
       const signer = new DAppSigner(
         AccountId.fromString(hederaAccountId),
-        (provider.client || provider) as any, // DAppSigner expects the SignClient or Provider
-        provider.session.topic,
+        (provider.client || provider) as any,
+        topic,
         networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
       );
 
       // 3. Trigger the Handshake (Sign Message)
-      // This is what brings up the HashPack popup!
-      // Note: We use .sign() which internally calls hedera_signMessage
+      // This is what brings up the "Sign Message" window in HashPack.
       const encoder = new TextEncoder();
       await signer.sign([encoder.encode(message)]);
 
@@ -182,6 +182,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       });
     }
   }, [isConnected, address, hederaAccountId, networkType, connector]);
+
 
   const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
 
