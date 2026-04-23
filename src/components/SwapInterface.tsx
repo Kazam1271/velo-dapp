@@ -300,15 +300,32 @@ export default function SwapInterface() {
       return;
     }
     try {
-      console.log(`[Associate] Constructing Native Association for ${recvToken.symbol} (${recvToken.tokenId})...`);
-      
-      const tx = new TokenAssociateTransaction()
-        .setAccountId(AccountId.fromString(hederaAccountId!))
-        .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
+      const connectorName = connector?.name?.toLowerCase() || "";
+      const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
 
-      await executeNativeTransaction(tx);
+      if (!isWalletConnect) {
+        // --- PATH A: EVM DIRECT ---
+        console.log(`[Associate] Executing EVM Associate for ${recvToken.symbol}...`);
+        const tokenAddress = `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`;
+        const data = encodeFunctionData({
+          abi: HTS_ABI,
+          functionName: "associateTokens",
+          args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
+        });
+        await sendTransactionAsync({
+          to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+          data,
+        });
+      } else {
+        // --- PATH B: NATIVE SDK (WalletConnect) ---
+        console.log(`[Associate] Executing Native Associate for ${recvToken.symbol}...`);
+        const tx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId!))
+          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
+        await executeNativeTransaction(tx);
+      }
       
-      toast.success("Association Sent", {
+      toast.success("Association Requested", {
         description: "Checking Mirror Node status...",
       });
       
@@ -325,101 +342,14 @@ export default function SwapInterface() {
   };
 
   const executeNativeTransaction = async (transaction: any) => {
-    // 1. Get the Provider and Identify Connection Type
+    // 1. Get the Provider (WalletConnect)
     const provider = await (modal as any).getProvider();
-    const connectorName = connector?.name?.toLowerCase() || "";
-    const isWalletConnect = provider?.session && provider?.client;
     
-    console.log(`[Router] Routing for ${connector?.name} (WC: ${!!isWalletConnect})`);
-
-    // ─────────────────────────────────────────────────────────────────
-    // PATH A: Injected (EVM) - MetaMask / HashPack Extension / Blade
-    // ─────────────────────────────────────────────────────────────────
-    if (!isWalletConnect || connectorName.includes("metamask")) {
-      console.log("[Router] Using EVM Bridge Path...");
-
-      const isAssociate = typeof (transaction as any).setTokenIds === "function" || (transaction as any)._tokenIds;
-      const isTransfer = typeof (transaction as any).addHbarTransfer === "function" || (transaction as any)._hbarTransfers;
-
-      // Case: ASSOCIATION
-      if (isAssociate) {
-        console.log("[Router] EVM Associate...");
-        const tokens = ((transaction as any)._tokenIds || []).map((id: any) => 
-          `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
-        );
-        
-        const data = encodeFunctionData({
-          abi: HTS_ABI,
-          functionName: "associateTokens",
-          args: [address as `0x${string}`, tokens],
-        });
-
-        const hash = await sendTransactionAsync({
-          to: HTS_CONTRACT_ADDRESS as `0x${string}`,
-          data,
-        });
-        return { transactionId: hash, hash };
-      }
-
-      // Case: TRANSFER / PAYMENT
-      if (isTransfer) {
-        console.log("[Router] EVM Transfer...");
-        const hbarTransfers = (transaction as any)._hbarTransfers || [];
-        const tokenTransfers = (transaction as any)._tokenTransfers || new Map();
-
-        // Subcase: HBAR ONLY (Standard eth_sendTransaction)
-        if (tokenTransfers.size === 0 && hbarTransfers.length > 0) {
-          console.log("[Router] EVM HBAR Transfer...");
-          // Find the negative amount (sender) and positive (receiver)
-          const treasuryTransfer = hbarTransfers.find((t: any) => !t.amount.isNegative());
-          if (!treasuryTransfer) throw new Error("No receiver found in HBAR transfer");
-
-          const hash = await sendTransactionAsync({
-            to: TREASURY_EVM_ADDRESS as `0x${string}`,
-            value: parseEther(treasuryTransfer.amount.toString().split(" ")[0]),
-          });
-          return { transactionId: hash, hash };
-        }
-
-        // Subcase: TOKEN TRANSFER (HTS Precompile)
-        if (tokenTransfers.size > 0) {
-          console.log("[Router] EVM Token Transfer via Precompile...");
-          // We'll use transferTokens for the first token found
-          const entries = Array.from(tokenTransfers.entries());
-          const [tokenId, transfers] = entries[0] as [any, any];
-          const tokenAddress = `0x${TokenId.fromString(tokenId.toString()).toSolidityAddress()}`;
-          
-          // Find the treasury amount
-          const treasuryAmount = Array.from(transfers.values()).find((amt: any) => amt > 0n) as bigint;
-          if (!treasuryAmount) throw new Error("No receiver found in token transfer");
-
-          const data = encodeFunctionData({
-            abi: HTS_ABI,
-            functionName: "transferTokens",
-            args: [
-              tokenAddress as `0x${string}`, 
-              [address as `0x${string}`, TREASURY_EVM_ADDRESS as `0x${string}`], 
-              [-(treasuryAmount), treasuryAmount]
-            ],
-          });
-
-          const hash = await sendTransactionAsync({
-            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
-            data,
-          });
-          return { transactionId: hash, hash };
-        }
-      }
-
-      throw new Error(`EVM bridge cannot identify this transaction type (${transaction.constructor.name}). If you are using a mobile wallet, please ensure you are connected via WalletConnect.`);
-    }
-
-    // ─────────────────────────────────────────────────────────────────
-    // PATH B: WalletConnect (Mobile / Remote)
-    // ─────────────────────────────────────────────────────────────────
     console.log("[Router] Using WalletConnect DAppSigner Path...");
-    const topic = provider.session.topic;
-    if (!topic || !hederaAccountId) throw new Error("No active session found.");
+    const topic = provider?.session?.topic;
+    if (!topic || !hederaAccountId) {
+      throw new Error("Native Hedera operations require an active WalletConnect session (Mobile Wallet). Please use the EVM path for extensions.");
+    }
 
     const signer = new DAppSigner(
       AccountId.fromString(hederaAccountId),
@@ -447,16 +377,36 @@ export default function SwapInterface() {
       const isVeloAssociated = liveBalances["0.0.8725045"] !== undefined;
       
       if (!isVeloAssociated) {
-        toast.info("Association Required", {
-          id: toastId,
-          description: "Signing VELO association via HashPack...",
-        });
+        const connectorName = connector?.name?.toLowerCase() || "";
+        const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
 
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId))
-          .setTokenIds([TokenId.fromString("0.0.8725045")]);
-
-        await executeNativeTransaction(associateTx);
+        if (!isWalletConnect) {
+          // --- PATH A: EVM DIRECT ---
+          toast.info("Association Required", {
+            id: toastId,
+            description: "Signing VELO association via EVM...",
+          });
+          const tokenAddress = `0x${TokenId.fromString("0.0.8725045").toSolidityAddress()}`;
+          const data = encodeFunctionData({
+            abi: HTS_ABI,
+            functionName: "associateTokens",
+            args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
+          });
+          await sendTransactionAsync({
+            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            data,
+          });
+        } else {
+          // --- PATH B: NATIVE SDK (WalletConnect) ---
+          toast.info("Association Required", {
+            id: toastId,
+            description: "Signing VELO association via Native SDK...",
+          });
+          const associateTx = new TokenAssociateTransaction()
+            .setAccountId(AccountId.fromString(hederaAccountId))
+            .setTokenIds([TokenId.fromString("0.0.8725045")]);
+          await executeNativeTransaction(associateTx);
+        }
         
         toast.loading("Association confirmed. Executing claim...", { id: toastId });
       } else {
