@@ -14,7 +14,8 @@ export async function POST(req: Request) {
       throw new Error("Treasury credentials missing in environment variables.");
     }
 
-    const treasuryKey = PrivateKey.fromStringECDSA(treasuryKeyStr);
+    const cleanKey = treasuryKeyStr.startsWith("0x") ? treasuryKeyStr.slice(2) : treasuryKeyStr;
+    const treasuryKey = PrivateKey.fromStringECDSA(cleanKey);
     client.setOperator(treasuryId, treasuryKey);
 
     // 2. Rebuild the transaction from the frontend's bytes

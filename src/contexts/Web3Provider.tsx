@@ -185,9 +185,8 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     return {
       getSigner: async () => {
         const provider = await (modal as any).getProvider();
-        if (!provider) throw new Error("No provider available");
-
-        if (provider.session && provider.client) {
+        
+        if (provider?.session && provider?.client) {
           return new DAppSigner(
             AccountId.fromString(hederaAccountId),
             provider.client,
@@ -195,7 +194,14 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
             LedgerId.TESTNET
           );
         }
-        throw new Error("DAppSigner requires WalletConnect session.");
+
+        // Fallback for native injected extensions (HashPack/Blade)
+        if (typeof window !== "undefined") {
+          const nativeProvider = (window as any).hashgraph || (window as any).hedera;
+          if (nativeProvider) return nativeProvider;
+        }
+
+        throw new Error("No provider available. Please connect your wallet.");
       },
 
       associateToken: async (tokenIdStr: string) => {
@@ -216,13 +222,16 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       },
 
       executeTransaction: async (transaction: any) => {
-        const provider = await (connector as any).getProvider();
-        if (!provider) throw new Error("No provider available");
-
-        // Path C: Native Extension (HashPack/Blade)
-        // Many extensions support hedera_signAndExecuteTransaction
-        console.log("[Web3Provider] Executing via Injected Extension Provider...");
+        let provider = await (connector as any)?.getProvider();
         
+        // Fallback for native injected extensions
+        if (!provider && typeof window !== "undefined") {
+          provider = (window as any).hashgraph || (window as any).hedera;
+        }
+
+        if (!provider) throw new Error("No provider available. Please connect your wallet.");
+
+        console.log("[Web3Provider] Executing via Injected Extension Provider...");
         const bytes = transaction.toBytes();
         const base64 = Buffer.from(bytes).toString("base64");
 
