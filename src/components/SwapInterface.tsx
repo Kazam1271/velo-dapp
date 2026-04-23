@@ -339,9 +339,10 @@ export default function SwapInterface() {
       console.log("[Router] Using EVM Bridge Path...");
 
       // Case: ASSOCIATION
-      if (transaction instanceof TokenAssociateTransaction) {
+      // Check for property fallback in case minification breaks instanceof
+      if (transaction instanceof TokenAssociateTransaction || (transaction as any)._tokenIds) {
         console.log("[Router] EVM Associate...");
-        const tokens = (transaction as any)._tokenIds.map((id: any) => 
+        const tokens = ((transaction as any)._tokenIds || []).map((id: any) => 
           `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
         );
         
@@ -359,7 +360,7 @@ export default function SwapInterface() {
       }
 
       // Case: TRANSFER / PAYMENT
-      if (transaction instanceof TransferTransaction) {
+      if (transaction instanceof TransferTransaction || (transaction as any)._hbarTransfers || (transaction as any)._tokenTransfers) {
         console.log("[Router] EVM Transfer...");
         const hbarTransfers = (transaction as any)._hbarTransfers || [];
         const tokenTransfers = (transaction as any)._tokenTransfers || new Map();
@@ -382,7 +383,8 @@ export default function SwapInterface() {
         if (tokenTransfers.size > 0) {
           console.log("[Router] EVM Token Transfer via Precompile...");
           // We'll use transferTokens for the first token found
-          const [tokenId, transfers] = Array.from(tokenTransfers.entries())[0] as [any, any];
+          const entries = Array.from(tokenTransfers.entries());
+          const [tokenId, transfers] = entries[0] as [any, any];
           const tokenAddress = `0x${TokenId.fromString(tokenId.toString()).toSolidityAddress()}`;
           
           // Find the treasury amount
@@ -407,7 +409,7 @@ export default function SwapInterface() {
         }
       }
 
-      throw new Error(`EVM path does not yet support ${transaction.constructor.name}`);
+      throw new Error(`EVM path does not yet support this transaction type (${transaction.constructor.name}). Please use a Mobile Wallet (WalletConnect) for this operation.`);
     }
 
     // ─────────────────────────────────────────────────────────────────
