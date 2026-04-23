@@ -6,8 +6,7 @@ import { useWeb3, modal } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { useWriteContract, useWaitForTransactionReceipt, useSendTransaction, useWalletClient } from "wagmi";
-import { parseEther, encodeFunctionData } from "viem";
+import { useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
@@ -35,12 +34,9 @@ const VELO_EVM_ADDRESS = "0x0000000000000000000000000000000000852235"; // 0.0.87
 // SaucerSwap V2 Testnet Constants
 const SAUCER_QUOTER_V2 = "0x00000000000000000000000000000000003C34AF"; // 0.0.3945935
 const SAUCER_ROUTER_V2 = "0x00000000000000000000000000000000003C34AA"; // 0.0.3945930
-const VELO_FEE_TREASURY = "0x000000000000000000000000000000000083F2B9"; // 0.0.8647225
+const VELO_FEE_TREASURY = "0.0.8647225";
 const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
 
-// ─────────────────────────────────────────────────────────────────
-// HTS System Contract ABI (Simple Associate)
-// ─────────────────────────────────────────────────────────────────
 const HTS_ABI = [
   {
     "inputs": [
@@ -49,45 +45,6 @@ const HTS_ABI = [
     ],
     "name": "associateTokens",
     "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "address", "name": "token", "type": "address" },
-      { "internalType": "address[]", "name": "sender", "type": "address[]" },
-      { "internalType": "int64[]", "name": "amount", "type": "int64[]" }
-    ],
-    "name": "transferTokens",
-    "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-] as const;
-
-const QUOTER_V2_ABI = [
-  {
-    "inputs": [
-      {
-        "components": [
-          { "internalType": "address", "name": "tokenIn", "type": "address" },
-          { "internalType": "address", "name": "tokenOut", "type": "address" },
-          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
-          { "internalType": "uint24", "name": "fee", "type": "uint24" },
-          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
-        ],
-        "internalType": "struct IQuoterV2.QuoteExactInputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
-    ],
-    "name": "quoteExactInputSingle",
-    "outputs": [
-      { "internalType": "uint256", "name": "amountOut", "type": "uint256" },
-      { "internalType": "uint160", "name": "sqrtPriceX96After", "type": "uint160" },
-      { "internalType": "uint32", "name": "initializedTicksCrossed", "type": "uint32" },
-      { "internalType": "uint256", "name": "gasEstimate", "type": "uint256" }
-    ],
     "stateMutability": "nonpayable",
     "type": "function"
   }
@@ -118,30 +75,29 @@ const ROUTER_V2_ABI = [
     ],
     "stateMutability": "payable",
     "type": "function"
-  }
-] as const;
-
-const ERC20_ABI = [
+  },
   {
     "inputs": [
-      { "internalType": "address", "name": "spender", "type": "address" },
-      { "internalType": "uint256", "name": "amount", "type": "uint256" }
+      { "internalType": "bytes[]", "name": "data", "type": "bytes[]" }
     ],
-    "name": "approve",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-    "stateMutability": "nonpayable",
+    "name": "multicall",
+    "outputs": [{ "internalType": "bytes[]", "name": "results", "type": "bytes[]" }],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "refundETH",
+    "outputs": [],
+    "stateMutability": "payable",
     "type": "function"
   }
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────
-// Mock balances for non-HBAR tokens
+// UI Components
 // ─────────────────────────────────────────────────────────────────
-// (Mock balances removed, now pulling live from Mirror Node)
 
-// ─────────────────────────────────────────────────────────────────
-// TokenBadge
-// ─────────────────────────────────────────────────────────────────
 function TokenBadge({ badge }: { badge?: "trending" | "verified" | "native" | "pilot" }) {
   if (badge === "trending") {
     return (
@@ -169,9 +125,6 @@ function TokenBadge({ badge }: { badge?: "trending" | "verified" | "native" | "p
   return null;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// TokenIcon
-// ─────────────────────────────────────────────────────────────────
 function TokenIcon({ token, size = 24 }: { token: Token; size?: number }) {
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
@@ -182,12 +135,10 @@ function TokenIcon({ token, size = 24 }: { token: Token; size?: number }) {
           className="absolute inset-0 w-full h-full rounded-full object-cover z-10 bg-slate-800"
           referrerPolicy="no-referrer"
           onError={(e) => {
-            // Hide image if it fails to load, revealing the letter fallback beneath it
             (e.currentTarget as HTMLImageElement).style.opacity = '0'; 
           }}
         />
       )}
-      {/* The Letter Fallback (Always exists, but hidden under the image if the image loads) */}
       <div className="absolute inset-0 w-full h-full rounded-full flex items-center justify-center bg-slate-700 text-white font-bold z-0" style={{ fontSize: size * 0.45 }}>
         {token.symbol ? token.symbol.charAt(0) : '?'}
       </div>
@@ -195,9 +146,6 @@ function TokenIcon({ token, size = 24 }: { token: Token; size?: number }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────
-// TokenDropdown
-// ─────────────────────────────────────────────────────────────────
 interface TokenDropdownProps {
   selected: Token;
   disabledSymbol: string;
@@ -216,7 +164,6 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
       t.name.toLowerCase().includes(query.toLowerCase())
   );
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -230,7 +177,6 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
 
   return (
     <div className="relative" ref={ref}>
-      {/* Trigger button */}
       <button
         id={`token-select-${label.replace(/\s+/g, "-").toLowerCase()}`}
         onClick={() => setOpen((v) => !v)}
@@ -244,10 +190,8 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
         />
       </button>
 
-      {/* Dropdown panel */}
       {open && (
         <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-2xl shadow-2xl z-50 overflow-hidden">
-          {/* Search */}
           <div className="flex items-center gap-2 px-3 py-2.5 border-b border-velo-border">
             <Search size={14} className="text-gray-500 shrink-0" />
             <input
@@ -265,7 +209,6 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
             )}
           </div>
 
-          {/* Token list */}
           <div className="max-h-60 overflow-y-auto py-1">
             {filtered.length === 0 ? (
               <div className="px-4 py-6 text-center text-sm text-gray-500">No tokens found</div>
@@ -289,9 +232,6 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
                   >
                     <div className="relative">
                       <TokenIcon token={token} size={32} />
-                      {token.symbol === "VELO" && (
-                        <div className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-velo-green rounded-full border-2 border-[#0c1019] glow-green" />
-                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
@@ -300,12 +240,7 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
                       </div>
                       <div className="text-xs text-gray-500 truncate">{token.name}</div>
                     </div>
-                    {isSelected && (
-                      <span className="w-2 h-2 rounded-full bg-velo-cyan shrink-0" />
-                    )}
-                    {isDisabled && (
-                      <span className="text-[9px] text-gray-600 shrink-0">In use</span>
-                    )}
+                    {isSelected && <span className="w-2 h-2 rounded-full bg-velo-cyan shrink-0" />}
                   </button>
                 );
               })
@@ -318,7 +253,6 @@ function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropd
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────
 const getTokenPriceUsd = (symbol: string | undefined, prices: any) => {
@@ -327,40 +261,25 @@ const getTokenPriceUsd = (symbol: string | undefined, prices: any) => {
   if (cleanSymbol === 'USDT' || cleanSymbol === 'USDC') return 1.0;
   return prices[cleanSymbol.toLowerCase()] || 0;
 };
+
 // ─────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance } = useWeb3();
+  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, connector, walletInterface } = useWeb3();
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapStage, setSwapStage] = useState<"IDLE" | "WAITING_FOR_WALLET" | "VERIFYING_ON_HEDERA" | "TREASURY_SENDING">("IDLE");
 
-  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]);   // HBAR
-  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]);  // BONZO
+  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]);
+  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
   const [isQuoting, setIsQuoting] = useState(false);
-
-  // ── Association Logic (Real) ──────────────────────────────
   const [isAssociated, setIsAssociated] = useState(false);
-  const { writeContractAsync, writeContract, data: associateHash, isPending: isAssociating } = useWriteContract();
-  const { isSuccess: isAssociateSuccess } = useWaitForTransactionReceipt({ hash: associateHash });
-  
-  const { sendTransactionAsync, sendTransaction, data: swapHash } = useSendTransaction();
-  const { isSuccess: isSwapSuccess, isLoading: isWaitingForReceipt } = useWaitForTransactionReceipt({ hash: swapHash });
-
 
   const { prices } = usePriceFeed();
   const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
-
-  const { connector, walletInterface } = useWeb3();
-  const { data: walletClient } = useWalletClient();
   const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
-
-  // Debug: Monitor Wagmi lifecycle
-  useEffect(() => {
-    console.log("[WagmiState]", { isConnected, address, hederaAccountId, connectorName: (connector as any)?.name });
-  }, [isConnected, address, hederaAccountId, connector]);
 
   useEffect(() => {
     if (recvToken.tokenId === "NATIVE") {
@@ -370,189 +289,31 @@ export default function SwapInterface() {
     }
   }, [liveBalances, recvToken]);
 
-  const handleAssociate = async () => {
-    console.log("Button Clicked: Associate", { isConnected, address, isAssociating });
-    if (!isConnected || !address || isAssociating || !hederaAccountId) {
-      console.warn("Association blocked", { isConnected, address, isAssociating, hederaAccountId });
-      return;
-    }
-    try {
-      const provider = await (modal as any).getProvider();
-      const treasuryId = "0.0.8642596";
-      const connectorName = connector?.name?.toLowerCase() || "";
-      const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
-
-      if (!isWalletConnect) {
-        // --- PATH A: EVM DIRECT ---
-        console.log(`[Associate] Executing EVM Associate for ${recvToken.symbol}...`);
-        const tokenAddress = `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`;
-        const data = encodeFunctionData({
-          abi: HTS_ABI,
-          functionName: "associateTokens",
-          args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
-        });
-        await sendTransactionAsync({
-          to: HTS_CONTRACT_ADDRESS as `0x${string}`,
-          data,
-        });
-      } else {
-        // --- PATH B: NATIVE SDK (WalletConnect) ---
-        console.log(`[Associate] Executing Native Associate for ${recvToken.symbol}...`);
-        const tx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId!))
-          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        await executeNativeTransaction(tx);
-      }
-      
-      toast.success("Association Requested", {
-        description: "Checking Mirror Node status...",
-      });
-      
-      // Auto-refresh balances to check for association
-      setTimeout(refreshBalances, 3000);
-    } catch (err: any) {
-      if (err.message?.includes("TOKEN_ALREADY_ASSOCIATED") || err.message?.includes("Contract logic reverted")) {
-        setIsAssociated(true);
-        toast.success("Already Associated");
-      } else {
-        toast.error("Association Failed", { description: err.message });
-      }
-    }
-  };
-
   const executeNativeTransaction = async (transaction: any) => {
-    // 1. Get the Provider (WalletConnect)
     const provider = await (modal as any).getProvider();
-    
-    console.log("[Router] Using WalletConnect DAppSigner Path...");
     const topic = provider?.session?.topic;
-    if (!topic || !hederaAccountId) {
-      throw new Error("Native Hedera operations require an active WalletConnect session (Mobile Wallet). Please use the EVM path for extensions.");
-    }
+    
+    if (!hederaAccountId) throw new Error("No Hedera Account ID found.");
 
-    const signer = new DAppSigner(
-      AccountId.fromString(hederaAccountId),
-      provider.client,
-      topic,
-      networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-    );
-
-    await transaction.freezeWithSigner(signer);
-    return await transaction.executeWithSigner(signer);
-  };
-
-  // ── Airdrop/Claim Logic ────────────────────────────────────
-  const [isClaiming, setIsClaiming] = useState(false);
-  const [hasClaimed, setHasClaimed] = useState(false);
-
-  const handleClaimAirdrop = async () => {
-    if (!isConnected || !hederaAccountId || isClaiming || hasClaimed) return;
-
-    setIsClaiming(true);
-    const toastId = toast.loading("Preparing Claim Flow...");
-
-    try {
-      // 1. Check Association for VELO (0.0.8725045)
-      const isVeloAssociated = liveBalances["0.0.8725045"] !== undefined;
-      
-      if (!isVeloAssociated) {
-        const provider = await (modal as any).getProvider();
-        const connectorName = connector?.name?.toLowerCase() || "";
-        const isWalletConnect = provider?.session && provider?.client && !connectorName.includes("metamask");
-
-        if (!isWalletConnect) {
-          // --- PATH A: EVM DIRECT ---
-          toast.info("Association Required", {
-            id: toastId,
-            description: "Signing VELO association via EVM...",
-          });
-          const tokenAddress = `0x${TokenId.fromString("0.0.8725045").toSolidityAddress()}`;
-          const data = encodeFunctionData({
-            abi: HTS_ABI,
-            functionName: "associateTokens",
-            args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
-          });
-          await sendTransactionAsync({
-            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
-            data,
-          });
-        } else {
-          // --- PATH B: NATIVE SDK (WalletConnect) ---
-          toast.info("Association Required", {
-            id: toastId,
-            description: "Signing VELO association via Native SDK...",
-          });
-          const associateTx = new TokenAssociateTransaction()
-            .setAccountId(AccountId.fromString(hederaAccountId))
-            .setTokenIds([TokenId.fromString("0.0.8725045")]);
-          await executeNativeTransaction(associateTx);
-        }
-        
-        toast.loading("Association confirmed. Executing claim...", { id: toastId });
-      } else {
-        toast.loading("Executing Treasury Distribution...", { id: toastId });
+    if (topic && provider.client) {
+      const signer = new DAppSigner(
+        AccountId.fromString(hederaAccountId),
+        provider.client,
+        topic,
+        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+      );
+      await transaction.freezeWithSigner(signer);
+      const response = await transaction.executeWithSigner(signer);
+      await response.getReceiptWithSigner(signer);
+      return response;
+    } else {
+      if (!walletInterface?.executeTransaction) {
+        throw new Error("Connected wallet does not support native transaction execution.");
       }
-
-      // 2. Execute the backend claim request
-      const resp = await fetch("/api/claim", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: hederaAccountId }),
-      });
-
-      const data = await resp.json();
-
-      if (!resp.ok) throw new Error(data.message || "Airdrop failed");
-
-      toast.success("500 VELO Successfully Sent!", {
-        id: toastId,
-        description: "Funds have arrived from the Velo Treasury.",
-        action: {
-          label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank"),
-        },
-      });
-
-      setHasClaimed(true);
-      refreshBalances(); 
-    } catch (err: any) {
-      console.error("Claim Error:", err);
-      if (err.message?.includes("TOKEN_ALREADY_ASSOCIATED") || err.message?.includes("Contract logic reverted")) {
-        toast.info("Token already associated. Please click Claim again to finish.", { 
-          id: toastId,
-          duration: 5000 
-        });
-        refreshBalances();
-      } else {
-        toast.error("Claim Failed", {
-          id: toastId,
-          description: err.message.includes("rejected") ? "Transaction was rejected." : err.message,
-        });
-      }
-    } finally {
-      setIsClaiming(false);
+      return await walletInterface.executeTransaction(transaction);
     }
   };
 
-  const payInfo = useMemo(() => {
-    if (payToken.tokenId === "NATIVE") {
-      return { value: balance, isLoading: isRefreshingBalance };
-    }
-    const val = liveBalances[payToken.tokenId];
-    if (val !== undefined) return { value: val, isLoading: isFetchingBalances };
-    return { value: "0.00", isLoading: isFetchingBalances };
-  }, [payToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
-
-  const recvInfo = useMemo(() => {
-    if (recvToken.tokenId === "NATIVE") {
-      return { value: balance, isLoading: isRefreshingBalance };
-    }
-    const val = liveBalances[recvToken.tokenId];
-    if (val !== undefined) return { value: val, isLoading: isFetchingBalances };
-    return { value: "0.00", isLoading: isFetchingBalances };
-  }, [recvToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
-
-  // ── Conversion Logic (Real-Time Quoter) ─────────────────────
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
@@ -560,10 +321,8 @@ export default function SwapInterface() {
       setIsQuoting(false);
       return;
     }
-
     setIsQuoting(true);
     const handler = setTimeout(async () => {
-      // 1. VELO Fixed Rate Check (1 HBAR = 10 VELO)
       if (payToken.symbol === "HBAR" && recvToken.symbol === "VELO") {
         setReceiveAmount((amount * 10).toFixed(2));
         setIsQuoting(false);
@@ -571,28 +330,14 @@ export default function SwapInterface() {
         setReceiveAmount((amount * 0.1).toFixed(6));
         setIsQuoting(false);
       } else {
-        // 2. Official SaucerSwap V2 Quote
         try {
-          console.log(`[Quote] Fetching V2 Quote for ${payAmount} ${payToken.symbol} -> ${recvToken.symbol}`);
-          
-          const quote = await getSaucerSwapQuote(
-            payToken.tokenId,
-            recvToken.tokenId,
-            payAmount,
-            payToken.decimals
-          );
-
+          const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
           if (quote) {
-            const formatted = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
-            setReceiveAmount(formatted);
+            setReceiveAmount(parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4));
           } else {
-            // Fallback to price feed if quoter fails
-            const payPrice = getTokenPriceUsd(payToken?.symbol, prices);
-            const receivePrice = getTokenPriceUsd(recvToken?.symbol, prices);
-            if (payPrice > 0 && receivePrice > 0) {
-              const output = (amount * payPrice) / receivePrice;
-              setReceiveAmount(output.toFixed(recvToken.decimals > 6 ? 6 : 4));
-            }
+            const p1 = getTokenPriceUsd(payToken.symbol, prices);
+            const p2 = getTokenPriceUsd(recvToken.symbol, prices);
+            if (p1 > 0 && p2 > 0) setReceiveAmount(((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4));
           }
         } catch (err) {
           console.error("Quoting failed:", err);
@@ -600,219 +345,76 @@ export default function SwapInterface() {
           setIsQuoting(false);
         }
       }
-    }, 600); // 600ms debounce to avoid RPC spam
-
+    }, 600);
     return () => clearTimeout(handler);
   }, [payAmount, payToken, recvToken, prices]);
 
-  const recvAmount = receiveAmount; // for backward compatibility with JSX
-
-  // Swap the two tokens
-  const handleFlip = () => {
-    if (isSwapping || isAssociating) return;
-    const oldPay = payToken;
-    const oldRecv = recvToken;
-    setPayToken(oldRecv);
-    setRecvToken(oldPay);
-  };
-
-  const handlePayTokenSelect = (t: Token) => {
-    if (isSwapping) return;
-    setPayToken(t);
-    // Auto-avoid duplicate
-    if (t.symbol === recvToken.symbol) {
-      const next = TOKEN_LIST.find((x) => x.symbol !== t.symbol) ?? TOKEN_LIST[1];
-      setRecvToken(next);
-    }
-  };
-
-  const handleRecvTokenSelect = (t: Token) => {
-    if (isSwapping) return;
-    setRecvToken(t);
-    if (t.symbol === payToken.symbol) {
-      const next = TOKEN_LIST.find((x) => x.symbol !== t.symbol) ?? TOKEN_LIST[0];
-      setPayToken(next);
-    }
-  };
-
   const handleSwap = async () => {
-    console.log("Button Clicked: Swap", { isConnected, address, hederaAccountId, payAmount });
-    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || (!address && !hederaAccountId)) {
-      if (isConnected && (!payAmount || parseFloat(payAmount) <= 0)) {
-        toast.error("Invalid Amount", { description: "Please enter a value to swap." });
-      }
-      return;
-    }
+    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !hederaAccountId) return;
 
     setIsSwapping(true);
     setSwapStage("WAITING_FOR_WALLET");
-    const toastId = toast.loading("Initializing Swap Engine...");
+    const toastId = toast.loading("Initializing Native Swap Engine...");
 
     try {
-      const provider = await (modal as any).getProvider();
-      
-      // 1. Check & Handle Association for Recv Token
       const targetTokenId = recvToken.tokenId;
-      const isAssociated = targetTokenId === "NATIVE" || liveBalances[targetTokenId] !== undefined;
-
-      if (!isAssociated) {
+      if (targetTokenId !== "NATIVE" && liveBalances[targetTokenId] === undefined) {
         toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
-        if (address?.startsWith("0x")) {
-          // EVM Association
-          const tokenAddress = `0x${TokenId.fromString(targetTokenId).toSolidityAddress()}`;
-          const data = encodeFunctionData({
-            abi: HTS_ABI,
-            functionName: "associateTokens",
-            args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
-          });
-          await sendTransactionAsync({
-            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
-            data,
-            chainId: 296,
-          });
-        } else if (hederaAccountId) {
-          // Native Association
-          const associateTx = new TokenAssociateTransaction()
-            .setAccountId(AccountId.fromString(hederaAccountId))
-            .setTokenIds([TokenId.fromString(targetTokenId)]);
-          await executeNativeTransaction(associateTx);
-        }
-        toast.loading("Association confirmed. Proceeding to swap...", { id: toastId });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString(targetTokenId)]);
+        await executeNativeTransaction(associateTx);
       }
 
-      // 2. Fee Calculation (0.25% Velo Fee)
       const tinyTotal = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
       const feeAmount = (tinyTotal * 25n) / 10000n;
       const swapAmount = tinyTotal - feeAmount;
-
-      const deadline = Math.floor(Date.now() / 1000) + 1200; // 20 mins
-      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n; // 0.5% slippage
+      const deadline = Math.floor(Date.now() / 1000) + 1200;
+      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
+      const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
 
       const params = {
         tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
         tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
         fee: 3000,
-        recipient: (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`,
+        recipient: userEvmAddress,
         deadline: BigInt(deadline),
         amountIn: swapAmount,
         amountOutMinimum: amountOutMin,
         sqrtPriceLimitX96: 0n
       };
 
-      let hash = "";
-
-      // 3. Execution Paths
-      // ==========================================
-      // PATH A: METAMASK / EVM WALLET
-      // ==========================================
-      if (address?.startsWith("0x")) {
-        console.log("Routing via EVM Engine (viem/wagmi)...");
-        
-        if (payToken.symbol === "HBAR") {
-          // Fee Transfer
-          toast.loading("Step 1/2: Sending 0.25% Fee...", { id: toastId });
-          await sendTransactionAsync({
-            to: VELO_FEE_TREASURY as `0x${string}`,
-            value: feeAmount,
-            chainId: 296,
-          });
-
-          // Swap
-          toast.loading("Step 2/2: Executing Swap...", { id: toastId });
-          const txHash = await writeContractAsync({
-            address: SAUCER_ROUTER_V2 as `0x${string}`,
-            abi: ROUTER_V2_ABI,
-            functionName: 'exactInputSingle',
-            args: [params],
-            value: swapAmount,
-            chainId: 296,
-          });
-          hash = txHash;
-        } else {
-          // Token Swap
-          const tokenInAddress = `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`;
-
-          toast.loading("Step 1/3: Approving Router...", { id: toastId });
-          const approveData = encodeFunctionData({
-            abi: ERC20_ABI,
-            functionName: "approve",
-            args: [SAUCER_ROUTER_V2 as `0x${string}`, tinyTotal],
-          });
-          await sendTransactionAsync({ to: tokenInAddress as `0x${string}`, data: approveData, chainId: 296 });
-
-          toast.loading("Step 2/3: Sending 0.25% Fee...", { id: toastId });
-          const feeData = encodeFunctionData({
-            abi: HTS_ABI,
-            functionName: "transferTokens",
-            args: [
-              tokenInAddress as `0x${string}`,
-              [address as `0x${string}`, VELO_FEE_TREASURY as `0x${string}`],
-              [-feeAmount, feeAmount],
-            ],
-          });
-          await sendTransactionAsync({ to: HTS_CONTRACT_ADDRESS as `0x${string}`, data: feeData, chainId: 296 });
-
-          toast.loading("Step 3/3: Executing Swap...", { id: toastId });
-          const txHash = await writeContractAsync({
-            address: SAUCER_ROUTER_V2 as `0x${string}`,
-            abi: ROUTER_V2_ABI,
-            functionName: 'exactInputSingle',
-            args: [params],
-            chainId: 296,
-          });
-          hash = txHash;
-        }
-      } 
-      // ==========================================
-      // PATH B: HASHPACK / NATIVE HEDERA WALLET
-      // ==========================================
-      else {
-        console.log("Routing via Native Engine (Hedera SDK)...");
-        const abiInterfaces = new ethers.Interface(ROUTER_V2_ABI as any);
-        
-        // Encode exactInputSingle
-        const swapEncoded = abiInterfaces.encodeFunctionData('exactInputSingle', [params]);
-        // Encode refundETH
-        const refundEncoded = abiInterfaces.encodeFunctionData('refundETH', []);
-        // Encode multicall
-        const multicallEncoded = abiInterfaces.encodeFunctionData('multicall', [[swapEncoded, refundEncoded]]);
-        
-        const encodedDataAsUint8Array = new Uint8Array(
-          multicallEncoded.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16))
-        );
-
-        const swapTx = new ContractExecuteTransaction()
-          .setContractId(TokenId.fromString("0.0.3945930").toString()) // Router ID
-          .setGas(1500000)
-          .setFunctionParameters(encodedDataAsUint8Array);
-
-        if (payToken.symbol === "HBAR") {
-          // Native Fee Transfer + Swap Value
-          const totalHbar = Hbar.fromTinybars(Number(tinyTotal));
-          
-          toast.loading("Executing Native HBAR Swap...", { id: toastId });
-          swapTx.setPayableAmount(Hbar.fromTinybars(Number(swapAmount)));
-          
-          // Fee transfer (separate tx for native)
-          const feeTx = new TransferTransaction()
-            .addHbarTransfer(AccountId.fromString(hederaAccountId!), Hbar.fromTinybars(Number(feeAmount)).negated())
-            .addHbarTransfer(AccountId.fromString("0.0.8647225"), Hbar.fromTinybars(Number(feeAmount)));
-          
-          await executeNativeTransaction(feeTx);
-          const result = await executeNativeTransaction(swapTx);
-          hash = result.transactionId.toString();
-        } else {
-          // Native Token Swap
-          toast.loading("Executing Native Token Swap...", { id: toastId });
-          // ... approval and fee transfer logic for native tokens ...
-          const result = await executeNativeTransaction(swapTx);
-          hash = result.transactionId.toString();
-        }
+      toast.loading("Step 1/2: Sending 0.25% Velo Fee...", { id: toastId });
+      const feeTx = new TransferTransaction();
+      if (payToken.symbol === "HBAR") {
+        feeTx.addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(Number(feeAmount)).negated())
+             .addHbarTransfer(AccountId.fromString(VELO_FEE_TREASURY), Hbar.fromTinybars(Number(feeAmount)));
+      } else {
+        feeTx.addTokenTransfer(payToken.tokenId, AccountId.fromString(hederaAccountId), Number(-feeAmount))
+             .addTokenTransfer(payToken.tokenId, AccountId.fromString(VELO_FEE_TREASURY), Number(feeAmount));
       }
+      await executeNativeTransaction(feeTx);
+
+      toast.loading("Step 2/2: Executing SaucerSwap Router...", { id: toastId });
+      const abi = new ethers.Interface(ROUTER_V2_ABI);
+      const swapEncoded = abi.encodeFunctionData('exactInputSingle', [params]);
+      const refundEncoded = abi.encodeFunctionData('refundETH', []);
+      const multicallEncoded = abi.encodeFunctionData('multicall', [[swapEncoded, refundEncoded]]);
+      
+      const encodedData = new Uint8Array(multicallEncoded.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16)));
+      const swapTx = new ContractExecuteTransaction()
+        .setContractId(TokenId.fromString("0.0.3945930").toString())
+        .setGas(1500000)
+        .setFunctionParameters(encodedData);
+
+      if (payToken.symbol === "HBAR") swapTx.setPayableAmount(Hbar.fromTinybars(Number(swapAmount)));
+
+      const result = await executeNativeTransaction(swapTx);
+      const hash = result.transactionId ? result.transactionId.toString() : result.hash;
 
       toast.success("SWAP SUCCESSFUL", {
         id: toastId,
-        description: `Successfully traded via Dual-Engine Router.`,
+        description: `Successfully traded via SaucerSwap V2 Native Engine.`,
         action: {
           label: "View HashScan",
           onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hash}`, "_blank"),
@@ -821,63 +423,21 @@ export default function SwapInterface() {
 
       refreshBalances();
       setPayAmount("");
-
     } catch (err: any) {
-      console.error("Swap Error:", err);
-      toast.error("Swap Failed", { 
-        id: toastId, 
-        description: err.message.includes("rejected") ? "Transaction was rejected." : err.message 
-      });
+      toast.error("Swap Failed", { id: toastId, description: err.message });
     } finally {
       setIsSwapping(false);
       setSwapStage("IDLE");
     }
   };
 
-  const triggerFulfillment = async (hash: string) => {
-    setSwapStage("VERIFYING_ON_HEDERA");
-    const toastId = toast.loading("Verifying on Hedera...");
-    
-    try {
-      const resp = await fetch("/api/swap-fill", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          hash,
-          accountId: hederaAccountId!,
-          targetToken: recvToken.tokenId,
-          targetAmount: recvAmount,
-        }),
-      });
-      
-      if (!resp.ok) {
-        const data = await resp.json();
-        throw new Error(data.message || "Verification Failed");
-      }
-
-      const data = await resp.json();
-      setSwapStage("TREASURY_SENDING");
-      
-      toast.success("SWAP COMPLETE!", {
-        id: toastId,
-        description: `Successfully swapped ${payToken.symbol} for ${recvAmount} ${recvToken.symbol}`,
-        action: {
-          label: "HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank"),
-        },
-        duration: 8000,
-      });
-
-      refreshBalances();
-      setPayAmount("");
-    } catch (err: any) {
-      toast.error("Protocol Error", { id: toastId, description: err.message });
-    } finally {
-      setIsSwapping(false);
-      setSwapStage("IDLE");
-    }
+  const handleFlip = () => {
+    if (isSwapping) return;
+    const oldP = payToken;
+    const oldR = recvToken;
+    setPayToken(oldR);
+    setRecvToken(oldP);
   };
-
 
   const setPercent = (pct: number) => {
     if (!isConnected || !payInfo.value || isSwapping) return;
@@ -885,234 +445,78 @@ export default function SwapInterface() {
     setPayAmount(raw.toFixed(2));
   };
 
+  const payInfo = useMemo(() => {
+    if (payToken.tokenId === "NATIVE") return { value: balance, isLoading: isRefreshingBalance };
+    const val = liveBalances[payToken.tokenId];
+    return { value: val ?? "0.00", isLoading: isFetchingBalances };
+  }, [payToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+
+  const recvInfo = useMemo(() => {
+    if (recvToken.tokenId === "NATIVE") return { value: balance, isLoading: isRefreshingBalance };
+    const val = liveBalances[recvToken.tokenId];
+    return { value: val ?? "0.00", isLoading: isFetchingBalances };
+  }, [recvToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+
   return (
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4">
-      {/* ── Welcome Promo Banner ─────────────────────────────── */}
-      {isConnected && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-velo-cyan/10 border border-velo-cyan/30 rounded-2xl p-4 flex items-center justify-between gap-4 overflow-hidden relative group"
-        >
-          {/* Animated background glow */}
-          <div className="absolute top-0 right-0 w-32 h-full bg-velo-cyan/5 blur-3xl -z-10 group-hover:bg-velo-cyan/10 transition-colors" />
-
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-velo-cyan/20 flex items-center justify-center text-velo-cyan shadow-[0_0_15px_rgba(6,182,212,0.2)]">
-              <TrendingUp size={20} />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-velo-cyan uppercase tracking-wider">Early Adopter Bonus</div>
-              <div className="text-white font-semibold flex items-center gap-1.5">
-                Claim 500 VELO
-                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400">Gift</span>
-              </div>
-            </div>
-          </div>
-
-          <button
-            id="claim-promo-btn"
-            onClick={handleClaimAirdrop}
-            disabled={isClaiming || hasClaimed}
-            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2
-              ${hasClaimed ? "bg-velo-green/20 text-velo-green border border-velo-green/30 cursor-default" :
-                isClaiming ? "bg-velo-cyan text-[#0b0e14] animate-pulse-cyan" :
-                "bg-velo-cyan text-[#0b0e14] hover:bg-cyan-400 glow-cyan active:scale-95 animate-pulse-cyan"}
-            `}
-          >
-            {isClaiming ? (
-              <RefreshCw size={14} className="animate-spin" />
-            ) : hasClaimed ? (
-              <CheckCircle2 size={14} />
-            ) : null}
-            {hasClaimed ? "CLAIMED" : "CLAIM"}
-          </button>
-        </motion.div>
-      )}
-
       <div className="bg-velo-card border border-velo-border rounded-3xl p-4 sm:p-6 shadow-2xl w-full relative">
-
-      {/* ── You Pay ──────────────────────────────────────────── */}
-      <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-2 relative">
-        <div className="text-sm text-gray-400 mb-2">You Pay</div>
-        <div className="flex items-center justify-between gap-4">
-          <input
-            id="pay-amount-input"
-            type="text"
-            inputMode="decimal"
-            placeholder="0.00"
-            value={payAmount}
-            onChange={(e) => setPayAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-            className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
-          />
-          <TokenDropdown
-            label="Pay"
-            selected={payToken}
-            disabledSymbol={recvToken.symbol}
-            onSelect={handlePayTokenSelect}
-          />
+        <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-2 relative">
+          <div className="text-sm text-gray-400 mb-2">You Pay</div>
+          <div className="flex items-center justify-between gap-4">
+            <input
+              type="text"
+              placeholder="0.00"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
+            />
+            <TokenDropdown label="Pay" selected={payToken} disabledSymbol={recvToken.symbol} onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
+          </div>
+          <div className="flex justify-between items-center text-sm text-gray-400 mt-5 px-1">
+            <div className="flex items-center gap-2">
+              <span>Balance:</span>
+              <span className="text-velo-cyan">{payInfo.value}</span>
+            </div>
+            <div className="flex gap-3">
+              {[25, 50, 75, 100].map(p => (
+                <button key={p} onClick={() => setPercent(p/100)} className="hover:text-velo-cyan text-[10px] font-bold">{p === 100 ? "MAX" : `${p}%`}</button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* Pricing tag */}
-        {payAmount && (
-          <div className="text-xs text-gray-500 mt-1 px-1">
-            ≈ ${(parseFloat(payAmount) * (prices[payToken.symbol.toLowerCase()] || 0)).toFixed(2)} USD
-          </div>
-        )}
+        <div className="relative flex justify-center -my-3 z-10">
+          <button onClick={handleFlip} className="bg-[#1a2130] border border-velo-border rounded-full p-2 hover:bg-[#232d42] transition-all"><ArrowUpDown size={16} className="text-velo-cyan" /></button>
+        </div>
 
-        {/* Balance row */}
-        <div className="flex justify-between items-center text-sm text-gray-400 mt-5 px-1">
-          <div className="flex items-center gap-2">
+        <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm text-gray-400">You Receive</span>
+            {isQuoting && <RefreshCw size={9} className="animate-spin text-velo-cyan" />}
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
+            <TokenDropdown label="Receive" selected={recvToken} disabledSymbol={payToken.symbol} onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
+          </div>
+          <div className="flex items-center gap-2 text-sm text-gray-400 mt-3 px-1">
             <span>Balance:</span>
-            {payInfo.isLoading ? (
-              <div className="w-16 h-4 bg-velo-cyan/20 animate-pulse rounded" />
-            ) : (
-              <span className={isConnected ? "text-velo-cyan font-medium" : ""}>
-                {payInfo.value}
-              </span>
-            )}
-          </div>
-          <div className="flex gap-3">
-            {[25, 50, 75].map((p) => (
-              <button
-                key={p}
-                onClick={() => setPercent(p / 100)}
-                className="hover:text-velo-cyan transition-colors text-[10px] font-bold"
-              >
-                {p}%
-              </button>
-            ))}
-            <button
-              onClick={() => setPercent(1)}
-              className="hover:text-velo-cyan transition-colors text-[10px] font-bold text-velo-cyan"
-            >
-              MAX
-            </button>
+            <span className="text-velo-cyan">{recvInfo.value}</span>
           </div>
         </div>
-      </div>
 
-      {/* ── Flip Button ──────────────────────────────────────── */}
-      <div className="relative flex justify-center -my-3 z-10">
         <button
-          id="swap-flip-btn"
-          onClick={handleFlip}
-          className="bg-[#1a2130] border border-velo-border rounded-full p-2 hover:bg-[#232d42] hover:rotate-180 transition-all duration-300 shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+          onClick={handleSwap}
+          disabled={!isConnected || isSwapping}
+          className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
         >
-          <ArrowUpDown size={16} className="text-velo-cyan" />
+          {isSwapping ? <RefreshCw size={20} className="animate-spin" /> : isConnected ? (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`) : "CONNECT WALLET"}
         </button>
-      </div>
 
-      {/* ── You Receive ───────────────────────────────────────── */}
-      <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-sm text-gray-400">You Receive</span>
-          {isQuoting && (
-            <span className="flex items-center gap-1 text-[10px] text-velo-cyan/70 uppercase tracking-wider">
-              <RefreshCw size={9} className="animate-spin" />
-              Fetching quote…
-            </span>
-          )}
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <input
-            type="text"
-            placeholder={isQuoting ? "…" : "0.00"}
-            value={recvAmount}
-            readOnly
-            className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
-          />
-          <TokenDropdown
-            label="Receive"
-            selected={recvToken}
-            disabledSymbol={payToken.symbol}
-            onSelect={handleRecvTokenSelect}
-          />
-        </div>
-        
-        {/* Pricing tag */}
-        {recvAmount && (
-          <div className="text-xs text-gray-500 mt-1 px-1">
-            ≈ ${(parseFloat(recvAmount) * (prices[recvToken.symbol.toLowerCase()] || 0)).toFixed(2)} USD
-          </div>
-        )}
-        <div className="flex items-center gap-2 text-sm text-gray-400 mt-3 px-1">
-          <span>Balance:</span>
-          <span className={isConnected ? "text-velo-cyan font-medium" : ""}>{recvInfo.value}</span>
-        </div>
-      </div>
-
-      {/* ── Market Price Indicator ─────────────────────────── */}
-      <div className="px-1 flex justify-between items-center text-[10px] text-gray-500 font-medium">
-        <div className="flex items-center gap-1.5">
-          <Info size={10} />
-          <span>Market Price:</span>
-          <span className="text-gray-300">
-            1 {payToken?.symbol} = {(() => {
-              const payPrice = getTokenPriceUsd(payToken?.symbol, prices);
-              const receivePrice = getTokenPriceUsd(recvToken?.symbol, prices);
-              const marketRate = (payPrice > 0 && receivePrice > 0) 
-                ? (payPrice / receivePrice).toFixed(4) 
-                : "0.0000";
-              return marketRate;
-            })()} {recvToken?.symbol}
-          </span>
-        </div>
-        <div className="text-velo-cyan/60 uppercase tracking-tighter">
-          Live via SaucerSwap
-        </div>
-      </div>
-
-      {/* ── Swap CTA ─────────────────────────────────────────── */}
-      <button
-        id="swap-cta-btn"
-        onClick={handleSwap}
-        disabled={!isConnected || isSwapping || isAssociating}
-        className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 disabled:cursor-not-allowed text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
-      >
-        {isSwapping || isAssociating ? (
-          <>
-            <RefreshCw size={20} className="animate-spin" />
-            {isAssociating
-              ? "REQUESTING ASSOCIATION..."
-              : swapStage === "WAITING_FOR_WALLET"
-              ? "WAITING FOR WALLET..."
-              : swapStage === "VERIFYING_ON_HEDERA"
-              ? "VERIFYING ON HEDERA..."
-              : "TREASURY SENDING VELO..."}
-          </>
-        ) : isConnected ? (
-          !isAssociated ? (
-            `ASSOCIATE ${recvToken.symbol}`
-          ) : (
-            `SWAP ${payToken.symbol} → ${recvToken.symbol}`
-          )
-        ) : (
-          "CONNECT WALLET"
-        )}
-      </button>
-
-      {/* ── ECDSA notice ─────────────────────────────────────── */}
-      <div className="text-center text-[10px] text-gray-500 mb-6 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
-        <Info size={14} className="text-velo-cyan shrink-0" />
-        <span className="leading-tight">
-          Please ensure you are using an{" "}
-          <span className="text-velo-cyan font-bold">ECDSA-type</span> account for full
-          compatibility with Velo.
-        </span>
-      </div>
-
-      {/* ── Rate / Fee footer ─────────────────────────────────── */}
-      <div className="flex justify-between items-center text-sm text-gray-400">
-        <div className="flex items-center gap-1.5">
-          <Info size={14} className="text-gray-500" />
-          Fixed Fee: <span className="text-white">$0.001</span>
-        </div>
-        <div>
-          Slippage: <span className="text-white">0.5%</span>
+        <div className="text-center text-[10px] text-gray-500 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
+          <Info size={14} className="text-velo-cyan shrink-0" />
+          <span className="leading-tight">Please ensure you are using an <span className="text-velo-cyan font-bold">ECDSA-type</span> account.</span>
         </div>
       </div>
     </div>
-  </div>
-);
+  );
 }
