@@ -33,7 +33,7 @@ export const modal = createAppKit({
       networks: hederaNativeNetworks as any, 
       namespace: hederaNamespace
     })
-  ],
+  ] as any,
   networks: [...networks, ...hederaNativeNetworks] as [any, ...any[]],
   projectId,
   metadata: {
