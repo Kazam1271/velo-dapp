@@ -89,16 +89,6 @@ export default function Header() {
       return "Connect";
     }
 
-    // Connected — show EVM address immediately while Mirror Node resolves
-    if (!isAuthenticated) {
-      return (
-        <span className="flex items-center gap-2">
-          <Zap size={14} className="animate-pulse text-yellow-400" />
-          <span>Authenticate</span>
-        </span>
-      );
-    }
-
     if (isLoading || !resolved) {
       return (
         <span className="flex items-center gap-2">
@@ -123,12 +113,9 @@ export default function Header() {
       open();
       return;
     }
-    if (!isAuthenticated) {
-      authenticate();
-      return;
-    }
     setShowDropdown((prev) => !prev);
   };
+
 
   const isHollowAccount = isConnected && resolved && !hederaAccountId && isHollow;
 
@@ -163,14 +150,13 @@ export default function Header() {
               className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[220px]
                 ${
                   isConnected
-                    ? isAuthenticated 
-                      ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
-                      : "bg-yellow-500/10 border border-yellow-500/40 text-yellow-500 hover:bg-yellow-500/20 animate-pulse"
+                    ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
                     : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
                 }`}
             >
-              {!isAuthenticated && isConnected ? <Zap size={16} className="shrink-0" /> : <Wallet size={16} className="shrink-0" />}
+              <Wallet size={16} className="shrink-0" />
               <span className="truncate">{buttonLabel()}</span>
+
               {isConnected && (
                 <ChevronDown
                   size={14}
