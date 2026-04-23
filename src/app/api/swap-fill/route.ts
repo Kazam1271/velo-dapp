@@ -22,9 +22,9 @@ export async function POST(req: NextRequest) {
     console.log(`[SwapFill] Verifying Hash: ${hash} for ${accountId}`);
 
     // --- 1. Verify on Mirror Node ---
-    // We poll up to 5 times (total 10 seconds) for Mirror Node indexing
+    // We poll up to 15 times (total 30 seconds) for Mirror Node indexing
     let txData = null;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 15; i++) {
       try {
         const mirrorResp = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions/${hash}`);
         const data = await mirrorResp.json();

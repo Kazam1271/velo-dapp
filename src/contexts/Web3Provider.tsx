@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { createAppKit, useAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { hedera, hederaTestnet } from "@reown/appkit/networks";
-import { WagmiProvider, useBalance, useDisconnect, useAccount } from "wagmi";
+import { WagmiProvider, useBalance, useDisconnect, useAccount, useSwitchChain } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
@@ -108,7 +108,8 @@ const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   const { open } = useAppKit();
   const { disconnect } = useDisconnect();
-  const { address, isConnected, connector } = useAccount();
+  const { address, isConnected, connector, chainId } = useAccount();
+  const { switchChain } = useSwitchChain();
 
   // ── Native Hedera Resolution ──────────────────────────────
   const { hederaAccountId } = useHederaAccount(isConnected && address ? address : null);
@@ -135,6 +136,24 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(VELO_MANUAL_DISCONNECT_KEY);
     }
   }, [isConnected, address]);
+
+  // ── Network Enforcement ───────────────────────────────────
+  useEffect(() => {
+    if (!isConnected || !chainId) return;
+    
+    const expectedChainId = networkType === "mainnet" ? 295 : 296;
+    if (chainId !== expectedChainId) {
+      console.warn(`[Web3Inner] Network Mismatch: Expected ${expectedChainId}, got ${chainId}`);
+      toast.warning("Wrong Network", {
+        description: `Please switch to Hedera ${networkType === "mainnet" ? "Mainnet" : "Testnet"}.`,
+        action: {
+          label: "Switch Now",
+          onClick: () => switchChain?.({ chainId: expectedChainId }),
+        },
+        duration: 10000,
+      });
+    }
+  }, [isConnected, chainId, networkType, switchChain]);
 
   // Wrapped full disconnect
   const fullDisconnect = useCallback(() => {
