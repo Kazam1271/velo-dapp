@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, ChevronDown, Info, Search, X, TrendingUp, ShieldCheck, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useRef, useState, useEffect, useCallback, useMemo } from "react";
-import { useWeb3, modal } from "@/contexts/Web3Provider";
+import { useWeb3, appKit } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";

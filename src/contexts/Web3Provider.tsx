@@ -27,7 +27,7 @@ const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 const hederaNativeNetworks = [HederaChainDefinition.Native.Testnet];
 const networkType = "testnet";
 
-export const modal = createAppKit({
+export const appKit = createAppKit({
   adapters: [
     wagmiAdapter, 
     new HederaAdapter({ 
@@ -67,6 +67,8 @@ export const modal = createAppKit({
     },
   },
 } as any);
+
+export const modal = appKit;
 
 const queryClient = new QueryClient();
 
@@ -183,18 +185,20 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     
     return {
       getSigner: async () => {
-        const provider = await (modal as any).getProvider();
-        if (!provider) throw new Error("No provider available");
+        const universalProvider = appKit.getUniversalProvider();
+        if (!universalProvider) throw new Error("No provider available");
 
-        if (provider.session && provider.client) {
-          return new DAppSigner(
-            AccountId.fromString(hederaAccountId),
-            provider.client,
-            provider.session.topic,
-            LedgerId.TESTNET
-          );
+        const topic = universalProvider.session?.topic;
+        if (!topic) {
+          console.warn("[Web3Provider] No WalletConnect session topic found.");
         }
-        throw new Error("DAppSigner requires WalletConnect session.");
+
+        return new DAppSigner(
+          AccountId.fromString(hederaAccountId),
+          universalProvider,
+          topic || "",
+          LedgerId.TESTNET
+        );
       },
 
       associateToken: async (tokenIdStr: string) => {
