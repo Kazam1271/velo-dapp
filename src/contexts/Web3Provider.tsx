@@ -39,7 +39,6 @@ export const modal = createAppKit({
     new HederaAdapter({ 
       projectId, 
       networks: networks as any, 
-      metadata,
       namespaceMode: 'required' 
     })
   ],
