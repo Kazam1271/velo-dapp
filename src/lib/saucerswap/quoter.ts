@@ -3,37 +3,10 @@ import { AccountId } from "@hiero-ledger/sdk";
 
 // SaucerSwap V2 QuoterV2 on Hedera Testnet
 const QUOTER_CONTRACT_ID = "0.0.3945935"; 
-const HEDERA_JSON_RPC_URL = "https://testnet.hashio.io/api";
-
-// Wrapped HBAR on Testnet
 const WHBAR_TOKEN_ID = "0.0.1505995"; 
 
 const QUOTER_V2_ABI = [
-  {
-    "inputs": [
-      {
-        "components": [
-          { "internalType": "address", "name": "tokenIn", "type": "address" },
-          { "internalType": "address", "name": "tokenOut", "type": "address" },
-          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
-          { "internalType": "uint24", "name": "fee", "type": "uint24" },
-          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
-        ],
-        "internalType": "struct IQuoterV2.QuoteExactInputSingleParams",
-        "name": "params",
-        "type": "tuple"
-      }
-    ],
-    "name": "quoteExactInputSingle",
-    "outputs": [
-      { "internalType": "uint256", "name": "amountOut", "type": "uint256" },
-      { "internalType": "uint160", "name": "sqrtPriceX96After", "type": "uint160" },
-      { "internalType": "uint32", "name": "initializedTicksCrossed", "type": "uint32" },
-      { "internalType": "uint256", "name": "gasEstimate", "type": "uint256" }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
+  "function quoteExactInputSingle(tuple(address tokenIn, address tokenOut, uint256 amountIn, uint24 fee, uint160 sqrtPriceLimitX96) params) external returns (uint256 amountOut, uint160 sqrtPriceX96After, uint32 initializedTicksCrossed, uint256 gasEstimate)"
 ];
 
 /**
@@ -43,24 +16,24 @@ function toEvmAddress(tokenId: string): string {
   if (tokenId === "NATIVE" || tokenId === "HBAR") {
     return `0x${AccountId.fromString(WHBAR_TOKEN_ID).toSolidityAddress()}`;
   }
-  return `0x${AccountId.fromString(tokenId).toSolidityAddress()}`;
+  // Ensure we have a valid 0.0.x format
+  const id = tokenId.includes(".") ? tokenId : `0.0.${tokenId}`;
+  return `0x${AccountId.fromString(id).toSolidityAddress()}`;
 }
 
 /**
- * Fetches a real-time quote from SaucerSwap V2 QuoterV2.
+ * Fetches a real-time quote from SaucerSwap V2 QuoterV2 via Mirror Node.
  */
 export async function getSaucerSwapQuote(
   tokenInId: string,
   tokenOutId: string,
   amountIn: string,
   decimalsIn: number,
-  fee: number = 3000 // Default 0.3% pool fee (Standard for SaucerSwap V2 pools)
+  fee: number = 3000
 ): Promise<string | null> {
+  const abiInterfaces = new ethers.Interface(QUOTER_V2_ABI);
+  
   try {
-    const provider = new ethers.JsonRpcProvider(HEDERA_JSON_RPC_URL);
-    const quoterAddress = toEvmAddress(QUOTER_CONTRACT_ID);
-    const quoter = new ethers.Contract(quoterAddress, QUOTER_V2_ABI, provider);
-
     const amountInSmallestUnit = ethers.parseUnits(amountIn, decimalsIn);
     
     const params = {
@@ -71,15 +44,39 @@ export async function getSaucerSwapQuote(
       sqrtPriceLimitX96: 0
     };
 
-    console.log(`[QuoterV2] Requesting quote for ${amountIn} (${tokenInId}) -> ${tokenOutId}`);
+    const encodedData = abiInterfaces.encodeFunctionData('quoteExactInputSingle', [params]);
+    const quoterAddress = toEvmAddress(QUOTER_CONTRACT_ID);
 
-    // staticCall to simulate the transaction and get the return values
-    const result = await quoter.quoteExactInputSingle.staticCall(params);
+    console.log(`[QuoterV2] Requesting Mirror Node quote for ${amountIn} (${tokenInId}) -> ${tokenOutId}`);
+
+    const mirrorNodeUrl = `https://testnet.mirrornode.hedera.com/api/v1/contracts/call`;
     
-    const amountOut = result.amountOut;
-    return amountOut.toString();
+    const response = await fetch(mirrorNodeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        to: quoterAddress,
+        data: encodedData,
+        estimate: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Mirror Node API failed: ${response.statusText}`);
+    }
+
+    const resultData = await response.json();
+    
+    if (!resultData.result) {
+      throw new Error("No result returned from Mirror Node");
+    }
+
+    const decoded = abiInterfaces.decodeFunctionResult('quoteExactInputSingle', resultData.result);
+    const expectedAmountOut = decoded.amountOut;
+    
+    return expectedAmountOut.toString();
   } catch (error) {
-    console.error("[QuoterV2] Failed to fetch quote:", error);
+    console.error("[QuoterV2] Failed to fetch quote from Mirror Node:", error);
     return null;
   }
 }
