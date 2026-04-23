@@ -424,7 +424,13 @@ export default function SwapInterface() {
       refreshBalances();
       setPayAmount("");
     } catch (err: any) {
-      toast.error("Swap Failed", { id: toastId, description: err.message });
+      console.error("Swap execution failed:", err);
+      
+      if (err.message && err.message.includes("hedera_signAndExecuteTransaction")) {
+        alert("Session Permission Error: Your wallet is connected, but didn't grant smart contract permissions. Please DISCONNECT, remove this site from HashPack 'Connected Sites', and RECONNECT.");
+      } else {
+        toast.error("Swap Failed", { id: toastId, description: err.message });
+      }
     } finally {
       setIsSwapping(false);
       setSwapStage("IDLE");

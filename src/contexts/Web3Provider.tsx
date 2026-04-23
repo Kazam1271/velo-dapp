@@ -66,6 +66,17 @@ export const modal = createAppKit({
       events: ["chainChanged", "accountsChanged"],
     },
   },
+  optionalNamespaces: {
+    hedera: {
+      chains: ["hedera:296"],
+      methods: [
+        "hedera_signAndExecuteTransaction",
+        "hedera_signTransaction",
+        "hedera_signMessage",
+      ],
+      events: ["chainChanged", "accountsChanged"],
+    },
+  },
 } as any);
 
 const queryClient = new QueryClient();
