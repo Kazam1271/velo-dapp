@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter } from "@hashgraph/hedera-wallet-connect";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter, HederaChainDefinition } from "@hashgraph/hedera-wallet-connect";
 import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -19,6 +19,10 @@ const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86e
 const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 const networks = networkType === "mainnet" ? [hedera, hederaTestnet] : [hederaTestnet];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
+
+const hederaNetworks = networkType === "mainnet" 
+  ? [HederaChainDefinition.Native.Mainnet] 
+  : [HederaChainDefinition.Native.Testnet];
 
 const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 
@@ -30,16 +34,17 @@ const metadata = {
 };
 
 // ─────────────────────────────────────────────────────────────────
-// 2. AppKit Initialization (Client-Side Only)
+// 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
-export const modal = typeof window !== "undefined" ? createAppKit({
+export const modal = createAppKit({
   metadata,
   adapters: [
     wagmiAdapter,
     new HederaAdapter({ 
       projectId, 
-      networks: networks as any, 
-      namespaceMode: 'required' 
+      networks: hederaNetworks as any, 
+      namespaceMode: 'required',
+      namespace: hederaNamespace
     })
   ],
   networks: networks as [any, ...any[]],
@@ -64,7 +69,9 @@ export const modal = typeof window !== "undefined" ? createAppKit({
       events: ["chainChanged", "accountsChanged"],
     }
   },
-} as any) : null as any;
+} as any);
+
+
 
 const queryClient = new QueryClient();
 
