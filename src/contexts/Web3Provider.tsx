@@ -110,11 +110,15 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const wasManuallyDisconnected = localStorage.getItem(VELO_MANUAL_DISCONNECT_KEY) === "true";
-    if (wasManuallyDisconnected && isConnected) {
-      fullDisconnect();
+    
+    if (isConnected) {
+      // If we are now connected, clear the manual disconnect flag
+      localStorage.setItem(VELO_MANUAL_DISCONNECT_KEY, "false");
+    } else {
+      // If we are disconnected, and the flag is NOT set, we might want to auto-connect 
+      // but AppKit usually handles that.
     }
-  }, [isConnected, fullDisconnect]);
+  }, [isConnected]);
 
   // Wallet Detection
   const walletType = useMemo(() => {
