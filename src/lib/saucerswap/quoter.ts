@@ -1,6 +1,5 @@
 import { ethers } from "ethers";
 import { AccountId } from "@hiero-ledger/sdk";
-import { getAddress } from "viem";
 
 // SaucerSwap V2 QuoterV2 on Hedera Testnet
 const QUOTER_CONTRACT_ID = "0.0.3945935"; 
@@ -41,13 +40,10 @@ const QUOTER_V2_ABI = [
  * Converts a Hedera Token ID (0.0.x) to a Solidity EVM Address (0x...)
  */
 function toEvmAddress(tokenId: string): string {
-  let addr = "";
   if (tokenId === "NATIVE" || tokenId === "HBAR") {
-    addr = `0x${AccountId.fromString(WHBAR_TOKEN_ID).toSolidityAddress()}`;
-  } else {
-    addr = `0x${AccountId.fromString(tokenId).toSolidityAddress()}`;
+    return `0x${AccountId.fromString(WHBAR_TOKEN_ID).toSolidityAddress()}`;
   }
-  return getAddress(addr);
+  return `0x${AccountId.fromString(tokenId).toSolidityAddress()}`;
 }
 
 /**
@@ -62,7 +58,7 @@ export async function getSaucerSwapQuote(
 ): Promise<string | null> {
   try {
     const provider = new ethers.JsonRpcProvider(HEDERA_JSON_RPC_URL);
-    const quoterAddress = getAddress(toEvmAddress(QUOTER_CONTRACT_ID));
+    const quoterAddress = toEvmAddress(QUOTER_CONTRACT_ID);
     const quoter = new ethers.Contract(quoterAddress, QUOTER_V2_ABI, provider);
 
     const amountInSmallestUnit = ethers.parseUnits(amountIn, decimalsIn);
