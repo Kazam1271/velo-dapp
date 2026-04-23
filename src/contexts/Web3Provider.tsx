@@ -60,6 +60,7 @@ export const modal = createAppKit({
       chains: ["hedera:296", "hedera:testnet"],
       methods: [
         "hedera_signAndExecuteTransaction",
+        "hedera_executeTransaction",
         "hedera_signTransaction",
         "hedera_signMessage",
       ],
@@ -222,16 +223,33 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
         // Many extensions support hedera_signAndExecuteTransaction
         console.log("[Web3Provider] Executing via Injected Extension Provider...");
         
-        // This is a bridge: extensions expect the transaction bytes
         const bytes = transaction.toBytes();
-        const params = [
-          Buffer.from(bytes).toString("base64")
-        ];
+        const base64 = Buffer.from(bytes).toString("base64");
 
-        return await provider.request({
-          method: "hedera_signAndExecuteTransaction",
-          params: params
-        });
+        try {
+          return await provider.request({
+            method: "hedera_signAndExecuteTransaction",
+            params: [base64]
+          });
+        } catch (err: any) {
+          console.warn("[Web3Provider] hedera_signAndExecuteTransaction failed, trying hedera_executeTransaction...", err);
+          try {
+            return await provider.request({
+              method: "hedera_executeTransaction",
+              params: [base64]
+            });
+          } catch (err2: any) {
+            console.warn("[Web3Provider] hedera_executeTransaction failed, trying object params...", err2);
+            try {
+              return await provider.request({
+                method: "hedera_signAndExecuteTransaction",
+                params: { transaction: base64 }
+              });
+            } catch (err3: any) {
+              throw err; // Re-throw original if all fallbacks fail
+            }
+          }
+        }
       }
     };
   }, [isConnected, connector, address, hederaAccountId, networkType]);
