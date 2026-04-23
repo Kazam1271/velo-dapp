@@ -338,9 +338,11 @@ export default function SwapInterface() {
     if (!isWalletConnect || connectorName.includes("metamask")) {
       console.log("[Router] Using EVM Bridge Path...");
 
+      const isAssociate = typeof (transaction as any).setTokenIds === "function" || (transaction as any)._tokenIds;
+      const isTransfer = typeof (transaction as any).addHbarTransfer === "function" || (transaction as any)._hbarTransfers;
+
       // Case: ASSOCIATION
-      // Check for property fallback in case minification breaks instanceof
-      if (transaction instanceof TokenAssociateTransaction || (transaction as any)._tokenIds) {
+      if (isAssociate) {
         console.log("[Router] EVM Associate...");
         const tokens = ((transaction as any)._tokenIds || []).map((id: any) => 
           `0x${AccountId.fromString(id.toString()).toSolidityAddress()}`
@@ -360,7 +362,7 @@ export default function SwapInterface() {
       }
 
       // Case: TRANSFER / PAYMENT
-      if (transaction instanceof TransferTransaction || (transaction as any)._hbarTransfers || (transaction as any)._tokenTransfers) {
+      if (isTransfer) {
         console.log("[Router] EVM Transfer...");
         const hbarTransfers = (transaction as any)._hbarTransfers || [];
         const tokenTransfers = (transaction as any)._tokenTransfers || new Map();
@@ -409,7 +411,7 @@ export default function SwapInterface() {
         }
       }
 
-      throw new Error(`EVM path does not yet support this transaction type (${transaction.constructor.name}). Please use a Mobile Wallet (WalletConnect) for this operation.`);
+      throw new Error(`EVM bridge cannot identify this transaction type (${transaction.constructor.name}). If you are using a mobile wallet, please ensure you are connected via WalletConnect.`);
     }
 
     // ─────────────────────────────────────────────────────────────────
