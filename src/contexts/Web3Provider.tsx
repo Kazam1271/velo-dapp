@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { createAppKit, useAppKit } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { hederaTestnet } from "@reown/appkit/networks";
-import { WagmiProvider, useAccount } from "wagmi";
+import { WagmiProvider, useAccount, useDisconnect } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
