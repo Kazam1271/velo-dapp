@@ -6,8 +6,7 @@ import { useWeb3, modal } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import { useWaitForTransactionReceipt, useWalletClient, useWriteContract, useSendTransaction, useAccount as useWagmiAccount } from "wagmi";
-import { parseEther, parseUnits, getAddress } from 'viem';
+import { useWaitForTransactionReceipt, useWalletClient } from "wagmi";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
@@ -35,21 +34,8 @@ const VELO_EVM_ADDRESS = "0x0000000000000000000000000000000000852235"; // 0.0.87
 // SaucerSwap V2 Testnet Constants
 const SAUCER_QUOTER_V2 = "0x00000000000000000000000000000000003C34AF"; // 0.0.3945935
 const SAUCER_ROUTER_V2 = "0x00000000000000000000000000000000003C34AA"; // 0.0.3945930
-const VELO_FEE_TREASURY = "0.0.8647225";
+const VELO_FEE_TREASURY = "0.0.8674583"; // Updated per user request
 const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
-
-const HTS_ABI = [
-  {
-    "inputs": [
-      { "internalType": "address", "name": "account", "type": "address" },
-      { "internalType": "address", "name": "tokens", "type": "address[]" }
-    ],
-    "name": "associateTokens",
-    "outputs": [{ "internalType": "int64", "name": "responseCode", "type": "int64" }],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  }
-] as const;
 
 const ROUTER_V2_ABI = [
   {
@@ -65,15 +51,20 @@ const ROUTER_V2_ABI = [
           { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" },
           { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
         ],
-        "internalType": "struct ISwapRouter.ExactInputSingleParams",
+        "internalType": "struct IV3SwapRouter.ExactInputSingleParams",
         "name": "params",
         "type": "tuple"
       }
     ],
     "name": "exactInputSingle",
-    "outputs": [
-      { "internalType": "uint256", "name": "amountOut", "type": "uint256" }
-    ],
+    "outputs": [{ "internalType": "uint256", "name": "amountOut", "type": "uint256" }],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "refundETH",
+    "outputs": [],
     "stateMutability": "payable",
     "type": "function"
   },
@@ -85,239 +76,67 @@ const ROUTER_V2_ABI = [
     "outputs": [{ "internalType": "bytes[]", "name": "results", "type": "bytes[]" }],
     "stateMutability": "payable",
     "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "refundETH",
-    "outputs": [],
-    "stateMutability": "payable",
-    "type": "function"
   }
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────
-// UI Components
+// Helper: Price Formatting
 // ─────────────────────────────────────────────────────────────────
-
-function TokenBadge({ badge }: { badge?: "trending" | "verified" | "native" | "pilot" }) {
-  if (badge === "trending") {
-    return (
-      <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-400 bg-orange-500/10 border border-orange-500/25 px-1.5 py-0.5 rounded-full">
-        <TrendingUp size={8} />
-        Hot
-      </span>
-    );
-  }
-  if (badge === "verified") {
-    return (
-      <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-velo-cyan bg-cyan-500/10 border border-cyan-500/25 px-1.5 py-0.5 rounded-full">
-        <ShieldCheck size={8} />
-        Verified
-      </span>
-    );
-  }
-  if (badge === "native" || badge === "pilot") {
-    return (
-      <span className="flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-white bg-velo-cyan/20 border border-velo-cyan/50 px-1.5 py-0.5 rounded-full shadow-[0_0_8px_rgba(6,182,212,0.3)]">
-        {badge}
-      </span>
-    );
-  }
-  return null;
-}
-
-function TokenIcon({ token, size = 24 }: { token: Token; size?: number }) {
-  return (
-    <div className="relative shrink-0" style={{ width: size, height: size }}>
-      {token.iconUrl && (
-        <img
-          src={token.iconUrl}
-          alt={token.symbol}
-          className="absolute inset-0 w-full h-full rounded-full object-cover z-10 bg-slate-800"
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            (e.currentTarget as HTMLImageElement).style.opacity = '0'; 
-          }}
-        />
-      )}
-      <div className="absolute inset-0 w-full h-full rounded-full flex items-center justify-center bg-slate-700 text-white font-bold z-0" style={{ fontSize: size * 0.45 }}>
-        {token.symbol ? token.symbol.charAt(0) : '?'}
-      </div>
-    </div>
-  );
-}
-
-interface TokenDropdownProps {
-  selected: Token;
-  disabledSymbol: string;
-  onSelect: (token: Token) => void;
-  label: string;
-}
-
-function TokenDropdown({ selected, disabledSymbol, onSelect, label }: TokenDropdownProps) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  const filtered = TOKEN_LIST.filter(
-    (t) =>
-      t.symbol.toLowerCase().includes(query.toLowerCase()) ||
-      t.name.toLowerCase().includes(query.toLowerCase())
-  );
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        id={`token-select-${label.replace(/\s+/g, "-").toLowerCase()}`}
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] px-3 py-2 rounded-xl text-white font-semibold transition-colors whitespace-nowrap border border-velo-border"
-      >
-        <TokenIcon token={selected} size={22} />
-        <span>{selected.symbol}</span>
-        <ChevronDown
-          size={14}
-          className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-
-      {open && (
-        <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-2xl shadow-2xl z-50 overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2.5 border-b border-velo-border">
-            <Search size={14} className="text-gray-500 shrink-0" />
-            <input
-              autoFocus
-              type="text"
-              placeholder="Search tokens…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="bg-transparent text-sm text-white outline-none placeholder-gray-600 flex-1 min-w-0"
-            />
-            {query && (
-              <button onClick={() => setQuery("")} className="text-gray-500 hover:text-gray-300">
-                <X size={12} />
-              </button>
-            )}
-          </div>
-
-          <div className="max-h-60 overflow-y-auto py-1">
-            {filtered.length === 0 ? (
-              <div className="px-4 py-6 text-center text-sm text-gray-500">No tokens found</div>
-            ) : (
-              filtered.map((token) => {
-                const isDisabled = token.symbol === disabledSymbol;
-                const isSelected = token.symbol === selected.symbol;
-                return (
-                  <button
-                    key={token.symbol}
-                    disabled={isDisabled}
-                    onClick={() => {
-                      onSelect(token);
-                      setOpen(false);
-                      setQuery("");
-                    }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 transition-colors text-left
-                      ${isDisabled ? "opacity-35 cursor-not-allowed" : "hover:bg-white/5 cursor-pointer"}
-                      ${isSelected ? "bg-cyan-950/40" : ""}
-                    `}
-                  >
-                    <div className="relative">
-                      <TokenIcon token={token} size={32} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-sm font-semibold text-white">{token.symbol}</span>
-                        {token.badge && <TokenBadge badge={token.badge} />}
-                      </div>
-                      <div className="text-xs text-gray-500 truncate">{token.name}</div>
-                    </div>
-                    {isSelected && <span className="w-2 h-2 rounded-full bg-velo-cyan shrink-0" />}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────
-const getTokenPriceUsd = (symbol: string | undefined, prices: any) => {
-  if (!symbol) return 0;
-  const cleanSymbol = symbol.toUpperCase().trim();
-  if (cleanSymbol === 'USDT' || cleanSymbol === 'USDC') return 1.0;
-  return prices[cleanSymbol.toLowerCase()] || 0;
+const getTokenPriceUsd = (symbol: string, prices: any) => {
+  if (symbol === "HBAR") return prices.hbar || 0.09;
+  if (symbol === "VELO") return prices.velo || 1.0;
+  if (symbol === "BONZO") return prices.bonzo || 0.02;
+  if (symbol === "SAUCE") return prices.sauce || 0.06;
+  if (symbol === "PACK") return prices.pack || 0.05;
+  if (symbol === "USDC") return 1.0;
+  if (symbol === "USDT") return 1.0;
+  return 0;
 };
 
 // ─────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { writeContractAsync } = useWriteContract();
-  const { sendTransactionAsync } = useSendTransaction();
-  const { connector: activeConnector, address: evmAddress } = useWagmiAccount();
   const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, connector, walletInterface } = useWeb3();
   const [isSwapping, setIsSwapping] = useState(false);
   const [swapStage, setSwapStage] = useState<"IDLE" | "WAITING_FOR_WALLET" | "VERIFYING_ON_HEDERA" | "TREASURY_SENDING">("IDLE");
-
-  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]);
-  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
+  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]); // HBAR
+  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]); // BONZO
   const [isQuoting, setIsQuoting] = useState(false);
-  const [isAssociated, setIsAssociated] = useState(false);
-
-  const { prices } = usePriceFeed();
-  const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
-  const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
-
-  const [isClaiming, setIsClaiming] = useState(false);
-  const [hasClaimed, setHasClaimed] = useState(false);
   const [payUsd, setPayUsd] = useState("0.00");
   const [receiveUsd, setReceiveUsd] = useState("0.00");
 
-  const VELO_TOKEN_ID = "0.0.8725045";
+  const { prices } = usePriceFeed();
+  const { balances: liveBalances, isFetching: isFetchingBalances, refreshBalances } = useTokenBalances(hederaAccountId);
+  
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [hasClaimed, setHasClaimed] = useState(false);
 
-  useEffect(() => {
-    if (recvToken.tokenId === "NATIVE") {
-      setIsAssociated(true);
-    } else {
-      setIsAssociated(liveBalances[recvToken.tokenId] !== undefined);
-    }
-  }, [liveBalances, recvToken]);
+  const isAssociated = useMemo(() => {
+    if (recvToken.tokenId === "NATIVE") return true;
+    return liveBalances[recvToken.tokenId] !== undefined;
+  }, [recvToken, liveBalances]);
 
-  const executeNativeTransaction = async (transaction: any) => {
+  const executeNativeTransaction = async (transaction: Transaction) => {
     const provider = await (modal as any).getProvider();
     const topic = provider?.session?.topic;
     
     if (!hederaAccountId) throw new Error("No Hedera Account ID found.");
 
     if (topic && provider.client) {
+      console.log("[SwapInterface] Executing via WalletConnect Signer...");
       const signer = new DAppSigner(
         AccountId.fromString(hederaAccountId),
         provider.client,
         topic,
-        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
+        LedgerId.TESTNET
       );
       await transaction.freezeWithSigner(signer);
-      const response = await transaction.executeWithSigner(signer);
-      await response.getReceiptWithSigner(signer);
-      return response;
+      return await transaction.executeWithSigner(signer);
     } else {
+      console.log("[SwapInterface] Executing via Extension Bridge...");
       if (!walletInterface?.executeTransaction) {
         throw new Error("Connected wallet does not support native transaction execution.");
       }
@@ -326,31 +145,32 @@ export default function SwapInterface() {
   };
 
   const handleClaimAirdrop = async () => {
-    if (!isConnected || !hederaAccountId || isClaiming || hasClaimed) return;
+    if (!isConnected || isClaiming || hasClaimed || !hederaAccountId) return;
     setIsClaiming(true);
-    const toastId = toast.loading("Preparing Claim Flow...");
-
+    const toastId = toast.loading("Connecting to Velo Treasury...");
+    
     try {
-      // 1. Check & Handle Association for VELO
-      if (liveBalances[VELO_TOKEN_ID] === undefined) {
-        toast.loading("Association Required", { id: toastId, description: "Associating VELO token..." });
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId))
-          .setTokenIds([TokenId.fromString(VELO_TOKEN_ID)]);
-        await executeNativeTransaction(associateTx);
-        toast.loading("Association confirmed. Executing claim...", { id: toastId });
-      }
-
-      // 2. Execute Backend Claim
-      const resp = await fetch("/api/claim", {
+      const response = await fetch("/api/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ accountId: hederaAccountId }),
       });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.message || "Airdrop failed");
+      
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Claim failed");
 
-      toast.success("500 VELO Successfully Sent!", {
+      if (data.associationRequired) {
+        toast.loading("Association Required", { id: toastId, description: "Please associate VELO token first." });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString(data.tokenId)]);
+        await executeNativeTransaction(associateTx);
+        setIsClaiming(false);
+        handleClaimAirdrop();
+        return;
+      }
+
+      toast.success("AIRDROP CLAIMED!", {
         id: toastId,
         description: "Funds have arrived from the Velo Treasury.",
         action: {
@@ -377,34 +197,25 @@ export default function SwapInterface() {
       return;
     }
 
-    // Update Pay USD
     const payPrice = getTokenPriceUsd(payToken.symbol, prices);
     setPayUsd((amount * payPrice).toFixed(2));
 
     setIsQuoting(true);
     const handler = setTimeout(async () => {
       let finalReceive = "0.00";
-      if (payToken.symbol === "HBAR" && recvToken.symbol === "VELO") {
-        finalReceive = (amount * 10).toFixed(2);
-      } else if (payToken.symbol === "VELO" && recvToken.symbol === "HBAR") {
-        finalReceive = (amount * 0.1).toFixed(6);
-      } else {
-        try {
-          const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
-          if (quote) {
-            finalReceive = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
-          } else {
-            const p1 = getTokenPriceUsd(payToken.symbol, prices);
-            const p2 = getTokenPriceUsd(recvToken.symbol, prices);
-            if (p1 > 0 && p2 > 0) finalReceive = ((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4);
-          }
-        } catch (err) {
-          console.error("Quoting failed:", err);
+      try {
+        const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
+        if (quote) {
+          finalReceive = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
+        } else {
+          const p1 = getTokenPriceUsd(payToken.symbol, prices);
+          const p2 = getTokenPriceUsd(recvToken.symbol, prices);
+          if (p1 > 0 && p2 > 0) finalReceive = ((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4);
         }
+      } catch (err) {
+        console.error("Quoting failed:", err);
       }
       setReceiveAmount(finalReceive);
-      
-      // Update Receive USD
       const recvPrice = getTokenPriceUsd(recvToken.symbol, prices);
       setReceiveUsd((parseFloat(finalReceive) * recvPrice).toFixed(2));
       setIsQuoting(false);
@@ -413,143 +224,80 @@ export default function SwapInterface() {
   }, [payAmount, payToken, recvToken, prices]);
 
   const handleSwap = async () => {
-    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0) return;
-    if (!address) return;
+    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !hederaAccountId) return;
 
     setIsSwapping(true);
     setSwapStage("WAITING_FOR_WALLET");
-    const toastId = toast.loading("Initializing Swap Engine...");
-
-    const isEvmWallet = address.startsWith("0x") && !activeConnector?.id.includes("hashpack") && !activeConnector?.id.includes("blade");
+    const toastId = toast.loading("Initializing Native Swap Engine...");
 
     try {
-      if (isEvmWallet) {
-        // ─────────────────────────────────────────────────────────────────
-        // PATH A: EVM EXECUTION (MetaMask / AppKit-EVM)
-        // ─────────────────────────────────────────────────────────────────
-        console.log("[SwapInterface] Executing via EVM Engine...");
-        
-        const totalAmount = parseFloat(payAmount);
-        const feeAmount = totalAmount * 0.0025;
-        const swapAmount = totalAmount - feeAmount;
-
-        const routerEvm = getAddress(SAUCER_ROUTER_V2);
-        const treasuryEvm = getAddress("0x000000000000000000000000000000000083F2B9"); // 0.0.8647225
-        const tokenInEvm = getAddress(payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`);
-        const tokenOutEvm = getAddress(recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`);
-        const userEvm = getAddress(address);
-
-        // Step 1: Velo Service Fee
-        toast.loading("Step 1/2: Sending 0.25% Service Fee...", { id: toastId });
-        await sendTransactionAsync({
-          to: treasuryEvm,
-          value: parseEther(feeAmount.toFixed(8))
-        });
-
-        // Step 2: Swap
-        toast.loading("Step 2/2: Executing Swap...", { id: toastId });
-        const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
-        const deadline = Math.floor(Date.now() / 1000) + 1200;
-
-        const params = {
-          tokenIn: tokenInEvm,
-          tokenOut: tokenOutEvm,
-          fee: 3000,
-          recipient: userEvm,
-          deadline: BigInt(deadline),
-          amountIn: parseUnits(swapAmount.toFixed(8), 8),
-          amountOutMinimum: amountOutMin,
-          sqrtPriceLimitX96: 0n
-        };
-
-        const txHash = await writeContractAsync({
-          address: routerEvm,
-          abi: ROUTER_V2_ABI,
-          functionName: 'exactInputSingle',
-          args: [params],
-          value: payToken.symbol === "HBAR" ? parseEther(swapAmount.toFixed(8)) : 0n
-        });
-
-        toast.success("Swap Successful!", { 
-          id: toastId, 
-          description: "Transaction confirmed on Hedera EVM.",
-          action: {
-            label: "View HashScan",
-            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${txHash}`, "_blank")
-          }
-        });
-
-      } else {
-        // ─────────────────────────────────────────────────────────────────
-        // PATH B: NATIVE HEDERA EXECUTION (HashPack / Blade)
-        // ─────────────────────────────────────────────────────────────────
-        if (!hederaAccountId) throw new Error("No Hedera Account ID found.");
-        console.log("[SwapInterface] Executing via Native Engine...");
-
-        const targetTokenId = recvToken.tokenId;
-        if (targetTokenId !== "NATIVE" && liveBalances[targetTokenId] === undefined) {
-          toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
-          const associateTx = new TokenAssociateTransaction()
-            .setAccountId(AccountId.fromString(hederaAccountId))
-            .setTokenIds([TokenId.fromString(targetTokenId)]);
-          await executeNativeTransaction(associateTx);
-        }
-
-        const tinyTotal = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
-        const feeAmount = (tinyTotal * 25n) / 10000n;
-        const swapAmount = tinyTotal - feeAmount;
-        const deadline = Math.floor(Date.now() / 1000) + 1200;
-        const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
-        const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
-
-        const params = {
-          tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
-          tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
-          fee: 3000,
-          recipient: userEvmAddress,
-          deadline: BigInt(deadline),
-          amountIn: swapAmount,
-          amountOutMinimum: amountOutMin,
-          sqrtPriceLimitX96: 0n
-        };
-
-        toast.loading("Step 1/2: Sending 0.25% Velo Fee...", { id: toastId });
-        const feeTx = new TransferTransaction();
-        if (payToken.symbol === "HBAR") {
-          feeTx.addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(Number(feeAmount)).negated())
-               .addHbarTransfer(AccountId.fromString(VELO_FEE_TREASURY), Hbar.fromTinybars(Number(feeAmount)));
-        } else {
-          feeTx.addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(hederaAccountId), -Number(feeAmount))
-               .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(VELO_FEE_TREASURY), Number(feeAmount));
-        }
-        await executeNativeTransaction(feeTx);
-
-        toast.loading("Step 2/2: Executing SaucerSwap Router...", { id: toastId });
-        const abi = new ethers.Interface(ROUTER_V2_ABI);
-        const swapEncoded = abi.encodeFunctionData('exactInputSingle', [params]);
-        const refundEncoded = abi.encodeFunctionData('refundETH', []);
-        const multicallEncoded = abi.encodeFunctionData('multicall', [[swapEncoded, refundEncoded]]);
-        
-        const encodedData = new Uint8Array(multicallEncoded.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16)));
-        const swapTx = new ContractExecuteTransaction()
-          .setContractId(TokenId.fromString("0.0.3945930").toString())
-          .setGas(1500000)
-          .setFunctionParameters(encodedData);
-
-        if (payToken.symbol === "HBAR") swapTx.setPayableAmount(Hbar.fromTinybars(Number(swapAmount)));
-
-        const result = await executeNativeTransaction(swapTx);
-        const hash = result.transactionId ? result.transactionId.toString() : result.hash;
-
-        toast.success("SWAP SUCCESSFUL", {
-          id: toastId,
-          description: `Successfully traded via SaucerSwap V2 Native Engine.`,
-          action: {
-            label: "View HashScan",
-            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hash}`, "_blank"),
-          },
-        });
+      // 1. Association Check
+      const targetTokenId = recvToken.tokenId;
+      if (targetTokenId !== "NATIVE" && !isAssociated) {
+        toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setTokenIds([TokenId.fromString(targetTokenId)]);
+        await executeNativeTransaction(associateTx);
       }
+
+      // 2. Math & Formatting
+      const tinyTotal = BigInt(Math.floor(parseFloat(payAmount) * Math.pow(10, payToken.decimals)));
+      const feeAmount = (tinyTotal * 25n) / 10000n;
+      const swapAmount = tinyTotal - feeAmount;
+      const deadline = Math.floor(Date.now() / 1000) + 1200;
+      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
+      const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
+
+      const params = {
+        tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+        tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+        fee: 3000,
+        recipient: userEvmAddress,
+        deadline: BigInt(deadline),
+        amountIn: swapAmount,
+        amountOutMinimum: amountOutMin,
+        sqrtPriceLimitX96: 0n
+      };
+
+      // 3. Step 1: Velo Service Fee (Native Transfer)
+      toast.loading("Step 1/2: Sending 0.25% Velo Fee...", { id: toastId });
+      const feeTx = new TransferTransaction();
+      if (payToken.symbol === "HBAR") {
+        feeTx.addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(Number(feeAmount)).negated())
+             .addHbarTransfer(AccountId.fromString(VELO_FEE_TREASURY), Hbar.fromTinybars(Number(feeAmount)));
+      } else {
+        feeTx.addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(hederaAccountId), -Number(feeAmount))
+             .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(VELO_FEE_TREASURY), Number(feeAmount));
+      }
+      await executeNativeTransaction(feeTx);
+
+      // 4. Step 2: Swap Execution (Native Contract Call)
+      toast.loading("Step 2/2: Executing SaucerSwap Router...", { id: toastId });
+      const abi = new ethers.Interface(ROUTER_V2_ABI);
+      const swapEncoded = abi.encodeFunctionData('exactInputSingle', [params]);
+      const refundEncoded = abi.encodeFunctionData('refundETH', []);
+      const multicallEncoded = abi.encodeFunctionData('multicall', [[swapEncoded, refundEncoded]]);
+      
+      const encodedData = new Uint8Array(multicallEncoded.match(/[\da-f]{2}/gi)!.map(h => parseInt(h, 16)));
+      const swapTx = new ContractExecuteTransaction()
+        .setContractId(TokenId.fromString("0.0.3945930").toString())
+        .setGas(1500000)
+        .setFunctionParameters(encodedData);
+
+      if (payToken.symbol === "HBAR") swapTx.setPayableAmount(Hbar.fromTinybars(Number(swapAmount)));
+
+      const result = await executeNativeTransaction(swapTx);
+      const hash = result.transactionId ? result.transactionId.toString() : result.hash;
+
+      toast.success("SWAP SUCCESSFUL", {
+        id: toastId,
+        description: `Successfully traded via SaucerSwap V2 Native Engine.`,
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hash}`, "_blank"),
+        },
+      });
 
       refreshBalances();
       setPayAmount("");
@@ -590,7 +338,7 @@ export default function SwapInterface() {
 
   return (
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4">
-      {/* ── Welcome Promo Banner ─────────────────────────────── */}
+      {/* ── Early Adopter Bonus ─────────────────────────────── */}
       {isConnected && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
@@ -640,7 +388,6 @@ export default function SwapInterface() {
             />
             <TokenDropdown label="Pay" selected={payToken} disabledSymbol={recvToken.symbol} onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
           </div>
-          {/* USD Calculation */}
           {payAmount && (
             <div className="text-xs text-gray-500 mt-1 px-1">
               ≈ ${payUsd} USD
@@ -672,7 +419,6 @@ export default function SwapInterface() {
             <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
             <TokenDropdown label="Receive" selected={recvToken} disabledSymbol={payToken.symbol} onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
           </div>
-          {/* USD Calculation */}
           {receiveAmount && (
             <div className="text-xs text-gray-500 mt-1 px-1">
               ≈ ${receiveUsd} USD
@@ -697,6 +443,58 @@ export default function SwapInterface() {
           <span className="leading-tight">Please ensure you are using an <span className="text-velo-cyan font-bold">ECDSA-type</span> account.</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function TokenDropdown({ label, selected, onSelect, disabledSymbol }: { label: string, selected: Token, onSelect: (t: Token) => void, disabledSymbol: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const clickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setIsOpen(false);
+    };
+    document.addEventListener("mousedown", clickOutside);
+    return () => document.removeEventListener("mousedown", clickOutside);
+  }, []);
+
+  return (
+    <div className="relative" ref={dropdownRef}>
+      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] transition-all rounded-2xl px-3 py-2 border border-velo-border group">
+        <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
+          <img src={selected.iconUrl} alt={selected.symbol} className="w-full h-full object-contain" />
+        </div>
+        <span className="text-white font-bold text-sm tracking-wide">{selected.symbol}</span>
+        <ChevronDown size={16} className={`text-gray-500 group-hover:text-velo-cyan transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      </button>
+
+      {isOpen && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute right-0 mt-2 w-64 bg-[#1a2130] border border-velo-border rounded-2xl shadow-2xl z-50 overflow-hidden py-2">
+          {TOKEN_LIST.map((t) => (
+            <button
+              key={t.symbol}
+              disabled={t.symbol === disabledSymbol}
+              onClick={() => { onSelect(t); setIsOpen(false); }}
+              className={`w-full flex items-center justify-between px-4 py-3 hover:bg-white/5 transition-all text-left ${t.symbol === disabledSymbol ? "opacity-30 grayscale cursor-not-allowed" : ""}`}
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10 p-1 flex items-center justify-center">
+                  <img src={t.iconUrl} alt={t.symbol} className="w-full h-full object-contain" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-white flex items-center gap-1.5">
+                    {t.symbol}
+                    {t.badge && <span className="text-[8px] bg-velo-cyan/20 text-velo-cyan px-1 rounded uppercase tracking-tighter">{t.badge}</span>}
+                  </div>
+                  <div className="text-[10px] text-gray-500">{t.name}</div>
+                </div>
+              </div>
+              {selected.symbol === t.symbol && <ShieldCheck size={16} className="text-velo-cyan" />}
+            </button>
+          ))}
+        </motion.div>
+      )}
     </div>
   );
 }
