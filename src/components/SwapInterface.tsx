@@ -7,7 +7,7 @@ import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { useWriteContract, useWaitForTransactionReceipt, useSendTransaction, useWalletClient } from "wagmi";
-import { parseEther, encodeFunctionData } from "viem";
+import { parseEther, encodeFunctionData, getAddress } from "viem";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
@@ -27,15 +27,15 @@ import { DAppSigner } from "@hashgraph/hedera-wallet-connect";
 // ─────────────────────────────────────────────────────────────────
 // Constants & ABI
 // ─────────────────────────────────────────────────────────────────
-const TREASURY_EVM_ADDRESS = "0x000000000000000000000000000000000083E0A4"; // 0.0.8642596
-const HTS_CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000167";
-const VELO_EVM_ADDRESS = "0x0000000000000000000000000000000000852235"; // 0.0.8725045
+const TREASURY_EVM_ADDRESS = getAddress("0x000000000000000000000000000000000083E0A4"); // 0.0.8642596
+const HTS_CONTRACT_ADDRESS = getAddress("0x0000000000000000000000000000000000000167");
+const VELO_EVM_ADDRESS = getAddress("0x0000000000000000000000000000000000852235"); // 0.0.8725045
 
 // SaucerSwap V2 Testnet Constants
-const SAUCER_QUOTER_V2 = "0x00000000000000000000000000000000003C34AF"; // 0.0.3945935
-const SAUCER_ROUTER_V2 = "0x00000000000000000000000000000000003C34AA"; // 0.0.3945930
-const VELO_FEE_TREASURY = "0x000000000000000000000000000000000083F2B9"; // 0.0.8647225
-const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
+const SAUCER_QUOTER_V2 = getAddress("0x00000000000000000000000000000000003C34AF"); // 0.0.3945935
+const SAUCER_ROUTER_V2 = getAddress("0x00000000000000000000000000000000003C34AA"); // 0.0.3945930
+const VELO_FEE_TREASURY = getAddress("0x000000000000000000000000000000000083F2B9"); // 0.0.8647225
+const WHBAR_EVM_ADDRESS = getAddress("0x000000000000000000000000000000000016FBAB"); // 0.0.1505995
 
 // ─────────────────────────────────────────────────────────────────
 // HTS System Contract ABI (Simple Associate)
@@ -659,14 +659,14 @@ export default function SwapInterface() {
       if (!isAssociated) {
         toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
         if (!isWalletConnect) {
-          const tokenAddress = `0x${TokenId.fromString(targetTokenId).toSolidityAddress()}`;
+          const tokenAddress = getAddress(`0x${TokenId.fromString(targetTokenId).toSolidityAddress()}`);
           const data = encodeFunctionData({
             abi: HTS_ABI,
             functionName: "associateTokens",
-            args: [address as `0x${string}`, [tokenAddress as `0x${string}`]],
+            args: [getAddress(address as string) as `0x${string}`, [tokenAddress as `0x${string}`]],
           });
           await sendTransactionAsync({
-            to: HTS_CONTRACT_ADDRESS as `0x${string}`,
+            to: HTS_CONTRACT_ADDRESS,
             data,
             chainId: 296,
           });
@@ -696,7 +696,7 @@ export default function SwapInterface() {
           // A. Fee Transfer (HBAR)
           toast.loading("Step 1/2: Sending 0.25% Service Fee...", { id: toastId });
           await sendTransactionAsync({
-            to: VELO_FEE_TREASURY as `0x${string}`,
+            to: VELO_FEE_TREASURY,
             value: feeAmount,
             chainId: 296,
           });
@@ -709,10 +709,10 @@ export default function SwapInterface() {
           const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n; 
 
           const params = {
-            tokenIn: WHBAR_EVM_ADDRESS as `0x${string}`,
-            tokenOut: `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}` as `0x${string}`,
+            tokenIn: WHBAR_EVM_ADDRESS,
+            tokenOut: getAddress(`0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`),
             fee: 3000,
-            recipient: address as `0x${string}`,
+            recipient: getAddress(address as string),
             deadline: BigInt(deadline),
             amountIn: swapAmount,
             amountOutMinimum: amountOutMin,
@@ -726,7 +726,7 @@ export default function SwapInterface() {
           });
 
           const result = await sendTransactionAsync({
-            to: SAUCER_ROUTER_V2 as `0x${string}`,
+            to: SAUCER_ROUTER_V2,
             data,
             value: swapAmount,
             chainId: 296,
@@ -735,16 +735,16 @@ export default function SwapInterface() {
 
         } else {
           // B. Token Swap Flow
-          const tokenInAddress = `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`;
+          const tokenInAddress = getAddress(`0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`);
 
           // i. Approval
           toast.loading("Step 1/3: Approving Router...", { id: toastId });
           const approveData = encodeFunctionData({
             abi: ERC20_ABI,
             functionName: "approve",
-            args: [SAUCER_ROUTER_V2 as `0x${string}`, tinyTotal],
+            args: [SAUCER_ROUTER_V2, tinyTotal],
           });
-          await sendTransactionAsync({ to: tokenInAddress as `0x${string}`, data: approveData, chainId: 296 });
+          await sendTransactionAsync({ to: tokenInAddress, data: approveData, chainId: 296 });
 
           // ii. Fee Transfer
           toast.loading("Step 2/3: Sending 0.25% Service Fee...", { id: toastId });
@@ -752,22 +752,22 @@ export default function SwapInterface() {
             abi: HTS_ABI,
             functionName: "transferTokens",
             args: [
-              tokenInAddress as `0x${string}`,
-              [address as `0x${string}`, VELO_FEE_TREASURY as `0x${string}`],
+              tokenInAddress,
+              [getAddress(address as string), VELO_FEE_TREASURY],
               [-feeAmount, feeAmount],
             ],
           });
-          await sendTransactionAsync({ to: HTS_CONTRACT_ADDRESS as `0x${string}`, data: feeData, chainId: 296 });
+          await sendTransactionAsync({ to: HTS_CONTRACT_ADDRESS, data: feeData, chainId: 296 });
 
           // iii. Swap
           toast.loading("Step 3/3: Executing SaucerSwap V2 Trade...", { id: toastId });
           const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
           const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
           const params = {
-            tokenIn: tokenInAddress as `0x${string}`,
-            tokenOut: (recvToken.tokenId === "NATIVE" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+            tokenIn: tokenInAddress,
+            tokenOut: (recvToken.tokenId === "NATIVE" ? WHBAR_EVM_ADDRESS : getAddress(`0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`)),
             fee: 3000,
-            recipient: address as `0x${string}`,
+            recipient: getAddress(address as string),
             deadline: BigInt(deadline),
             amountIn: swapAmount,
             amountOutMinimum: amountOutMin,
@@ -781,7 +781,7 @@ export default function SwapInterface() {
           });
 
           const result = await sendTransactionAsync({
-            to: SAUCER_ROUTER_V2 as `0x${string}`,
+            to: SAUCER_ROUTER_V2,
             data: swapData,
             chainId: 296,
           });
