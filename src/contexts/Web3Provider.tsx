@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter } from "@hashgraph/hedera-wallet-connect";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter, HederaChainDefinition } from "@hashgraph/hedera-wallet-connect";
 import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -25,12 +25,20 @@ const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
 // ─────────────────────────────────────────────────────────────────
 // 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
+const hederaNativeNetworks = networkType === "mainnet" 
+  ? [HederaChainDefinition.Native.Mainnet] 
+  : [HederaChainDefinition.Native.Testnet];
+
 export const modal = createAppKit({
   adapters: [
     wagmiAdapter, 
-    new HederaAdapter()
+    new HederaAdapter({ 
+      projectId, 
+      networks: hederaNativeNetworks as any, 
+      namespace: hederaNamespace
+    })
   ],
-  networks: networks as [any, ...any[]],
+  networks: [...networks, ...hederaNativeNetworks] as [any, ...any[]],
   projectId,
   metadata: {
     name: "Velo",
