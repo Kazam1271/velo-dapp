@@ -9,67 +9,53 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter, HederaChainDefinition } from "@hashgraph/hedera-wallet-connect";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace } from "@hashgraph/hedera-wallet-connect";
 import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
 // 1. Configuration Constants
 // ─────────────────────────────────────────────────────────────────
-const projectId = process.env.NEXT_PUBLIC_REOWN_PROJECT_ID || process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
+const projectId = process.env.NEXT_PUBLIC_PROJECT_ID || "77347672d58ccce678cc86eee18c5918";
 const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 const networks = networkType === "mainnet" ? [hedera, hederaTestnet] : [hederaTestnet];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
 
-const hederaNativeNetworks = networkType === "mainnet" 
-  ? [HederaChainDefinition.Native.Mainnet] 
-  : [HederaChainDefinition.Native.Testnet];
-
 const VELO_MANUAL_DISCONNECT_KEY = "velo_manual_disconnect";
-
-const metadata = {
-  name: "Velo DEX",
-  description: "Velo - Hedera Native DEX",
-  url: "https://velo-swart.vercel.app",
-  icons: ["https://avatars.githubusercontent.com/u/37784886"],
-};
 
 // ─────────────────────────────────────────────────────────────────
 // 2. AppKit Initialization
 // ─────────────────────────────────────────────────────────────────
 export const modal = createAppKit({
-  metadata,
+  adapters: [wagmiAdapter],
+  networks: networks as [any, ...any[]],
   projectId,
-  adapters: [
-    wagmiAdapter,
-    new HederaAdapter({ 
-      projectId, 
-      networks: hederaNativeNetworks as any, 
-      namespaceMode: 'required',
-      namespace: hederaNamespace
-    })
-  ],
-  networks: [...networks, ...hederaNativeNetworks] as [any, ...any[]],
-  allWallets: "SHOW",
-
+  metadata: {
+    name: "Velo",
+    description: "High-velocity Hedera DeFi dApp",
+    url: "https://velo-swart.vercel.app/",
+    icons: ["https://i.imgur.com/uF9BXZ8.png"],
+  },
   features: {
     analytics: true,
-    socials: ["google", "x", "github", "apple", "facebook"],
-    email: true, // Enables social login (Logins list)
+    socials: ["google", "apple", "facebook"],
+    email: true,
   },
   themeVariables: {
     "--w3m-accent": "#06b6d4",
     "--w3m-border-radius-master": "16px",
   },
+  allWallets: "SHOW",
   // Request official Hedera namespace permissions
-  optionalNamespaces: {
+  requiredNamespaces: {
     hedera: {
       chains: [networkType === "mainnet" ? "hedera:295" : "hedera:296"],
       methods: [
         "hedera_signAndExecuteTransaction",
+        "hedera_signTransaction",
         "hedera_signMessage",
       ],
       events: ["chainChanged", "accountsChanged"],
-    }
+    },
   },
 } as any);
 
@@ -97,8 +83,6 @@ interface Web3ContextType {
     /** For Extensions / Bridge: Execute native SDK transaction */
     executeTransaction?: (transaction: any) => Promise<any>;
   } | null;
-  isAuthenticated: boolean;
-  authenticate: () => Promise<void>;
 }
 
 const Web3Context = createContext<Web3ContextType | undefined>(undefined);
@@ -118,71 +102,6 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   // ── Native Hedera Resolution ──────────────────────────────
   const { hederaAccountId } = useHederaAccount(isConnected && address ? address : null);
   const { balance: nativeBalance, isLoading: isRefreshingBalance } = useHederaBalance(hederaAccountId);
-
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  // Reset authentication if the user disconnects or account changes
-  useEffect(() => {
-    if (!isConnected || !address) {
-      setIsAuthenticated(false);
-    }
-  }, [isConnected, address]);
-
-  const authenticate = useCallback(async () => {
-    try {
-      // 1. Get the provider (Try connector first, then modal fallback)
-      let provider = await (connector as any)?.getProvider();
-      if (!provider) {
-        console.log("[Web3Inner] Connector provider missing, checking modal...");
-        provider = await (modal as any).getProvider();
-      }
-      
-      if (!provider) {
-        throw new Error("No provider available. Please try reconnecting.");
-      }
-
-      if (!isConnected || !address) {
-        throw new Error("Wallet not connected.");
-      }
-
-      if (!hederaAccountId) {
-        toast.info("Resolving Hedera ID...", { description: "Please wait a moment." });
-        return;
-      }
-
-      console.log("[Web3Inner] Requesting authentication handshake...");
-      const message = `Velo Auth: ${new Date().toISOString()}`;
-
-      // 2. Initialize the official DAppSigner
-      // We use the active session topic if it exists (WalletConnect) 
-      // OR an empty string for Injected Extensions (HashPack Desktop)
-      const topic = (provider as any).session?.topic || "";
-
-      const signer = new DAppSigner(
-        AccountId.fromString(hederaAccountId),
-        (provider.client || provider) as any,
-        topic,
-        networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
-      );
-
-      // 3. Trigger the Handshake (Sign Message)
-      // This is what brings up the "Sign Message" window in HashPack.
-      const encoder = new TextEncoder();
-      await signer.sign([encoder.encode(message)]);
-
-      setIsAuthenticated(true);
-      toast.success("Authenticated", {
-        description: "Handshake successful.",
-      });
-
-    } catch (error: any) {
-      console.error("[Web3Inner] Auth Error:", error);
-      toast.error("Authentication Failed", {
-        description: error.message || "Please try again.",
-      });
-    }
-  }, [isConnected, address, hederaAccountId, networkType, connector]);
-
 
   const [prevAddress, setPrevAddress] = useState<string | undefined>(undefined);
 
@@ -298,10 +217,8 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     open,
     disconnect: fullDisconnect,
     connector,
-    walletInterface,
-    isAuthenticated,
-    authenticate
-  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface, isAuthenticated, authenticate]);
+    walletInterface
+  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface]);
 
   return (
     <Web3Context.Provider value={value}>

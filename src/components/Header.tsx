@@ -12,7 +12,7 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { address, isConnected, balance, open, disconnect, isAuthenticated, authenticate } = useWeb3();
+  const { address, isConnected, balance, open, disconnect } = useWeb3();
 
   // Diagnostic Log
   useEffect(() => {
@@ -89,6 +89,7 @@ export default function Header() {
       return "Connect";
     }
 
+    // Connected — show EVM address immediately while Mirror Node resolves
     if (isLoading || !resolved) {
       return (
         <span className="flex items-center gap-2">
@@ -115,7 +116,6 @@ export default function Header() {
     }
     setShowDropdown((prev) => !prev);
   };
-
 
   const isHollowAccount = isConnected && resolved && !hederaAccountId && isHollow;
 
@@ -156,7 +156,6 @@ export default function Header() {
             >
               <Wallet size={16} className="shrink-0" />
               <span className="truncate">{buttonLabel()}</span>
-
               {isConnected && (
                 <ChevronDown
                   size={14}

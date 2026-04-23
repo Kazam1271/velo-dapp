@@ -326,15 +326,11 @@ export default function SwapInterface() {
 
   const executeNativeTransaction = async (transaction: any) => {
     // 1. Get the Provider and Identify Connection Type
-    let provider = await (connector as any)?.getProvider();
-    if (!provider) {
-      provider = await (modal as any).getProvider();
-    }
-    
+    const provider = await (modal as any).getProvider();
     const connectorName = connector?.name?.toLowerCase() || "";
-    const isWalletConnect = !!(provider?.session && provider?.client);
+    const isWalletConnect = provider?.session && provider?.client;
     
-    console.log(`[Router] Routing for ${connector?.name} (WC: ${isWalletConnect})`);
+    console.log(`[Router] Routing for ${connector?.name} (WC: ${!!isWalletConnect})`);
 
     // ─────────────────────────────────────────────────────────────────
     // PATH A: Injected (EVM) - MetaMask / HashPack Extension / Blade
@@ -407,18 +403,15 @@ export default function SwapInterface() {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // PATH B: WalletConnect (Mobile / Remote) OR Injected Extension
+    // PATH B: WalletConnect (Mobile / Remote)
     // ─────────────────────────────────────────────────────────────────
-    console.log("[Router] Using Native Signer Path...");
-    if (!hederaAccountId) throw new Error("Hedera Account ID not resolved.");
-
-    // We use the active session topic if it exists (WalletConnect) 
-    // OR an empty string for Injected Extensions (HashPack Desktop)
-    const topic = (provider as any).session?.topic || "";
+    console.log("[Router] Using WalletConnect DAppSigner Path...");
+    const topic = provider.session.topic;
+    if (!topic || !hederaAccountId) throw new Error("No active session found.");
 
     const signer = new DAppSigner(
       AccountId.fromString(hederaAccountId),
-      (provider.client || provider) as any,
+      provider.client,
       topic,
       networkType === "mainnet" ? LedgerId.MAINNET : LedgerId.TESTNET
     );
@@ -426,7 +419,6 @@ export default function SwapInterface() {
     await transaction.freezeWithSigner(signer);
     return await transaction.executeWithSigner(signer);
   };
-
 
   // ── Airdrop/Claim Logic ────────────────────────────────────
   const [isClaiming, setIsClaiming] = useState(false);
