@@ -2,15 +2,38 @@ import { ethers } from "ethers";
 import { AccountId } from "@hiero-ledger/sdk";
 
 // SaucerSwap V2 QuoterV2 on Hedera Testnet
-const QUOTER_CONTRACT_ID = "0.0.1390002";
+const QUOTER_CONTRACT_ID = "0.0.3945935"; 
 const HEDERA_JSON_RPC_URL = "https://testnet.hashio.io/api";
 
 // Wrapped HBAR on Testnet
-const WHBAR_TOKEN_ID = "0.0.8735222"; // Using the mock WHBAR defined in config/tokens.ts
+const WHBAR_TOKEN_ID = "0.0.1505995"; 
 
-const QUOTER_ABI = [
-  "function quoteExactInput(bytes path, uint256 amountIn) external returns (uint256 amountOut, uint160[] memory sqrtPriceX96AfterList, uint32[] memory initializedTicksCrossedList, uint256 gasEstimate)",
-  "function quoteExactOutput(bytes path, uint256 amountOut) external returns (uint256 amountIn, uint160[] memory sqrtPriceX96AfterList, uint32[] memory initializedTicksCrossedList, uint256 gasEstimate)"
+const QUOTER_V2_ABI = [
+  {
+    "inputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "tokenIn", "type": "address" },
+          { "internalType": "address", "name": "tokenOut", "type": "address" },
+          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
+          { "internalType": "uint24", "name": "fee", "type": "uint24" },
+          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
+        ],
+        "internalType": "struct IQuoterV2.QuoteExactInputSingleParams",
+        "name": "params",
+        "type": "tuple"
+      }
+    ],
+    "name": "quoteExactInputSingle",
+    "outputs": [
+      { "internalType": "uint256", "name": "amountOut", "type": "uint256" },
+      { "internalType": "uint160", "name": "sqrtPriceX96After", "type": "uint160" },
+      { "internalType": "uint32", "name": "initializedTicksCrossed", "type": "uint32" },
+      { "internalType": "uint256", "name": "gasEstimate", "type": "uint256" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
 ];
 
 /**
@@ -24,50 +47,39 @@ function toEvmAddress(tokenId: string): string {
 }
 
 /**
- * Encodes a path for SaucerSwap V2: [token, fee, token, fee, token, ...]
- * Each token is 20 bytes, each fee is 3 bytes (uint24).
- */
-function encodePath(tokens: string[], fees: number[]): string {
-  let path = "0x";
-  for (let i = 0; i < tokens.length; i++) {
-    path += toEvmAddress(tokens[i]).slice(2);
-    if (i < fees.length) {
-      // Fee is uint24 (3 bytes)
-      path += fees[i].toString(16).padStart(6, "0");
-    }
-  }
-  return path;
-}
-
-/**
- * Fetches a real-time quote from SaucerSwap V2 Quoter.
+ * Fetches a real-time quote from SaucerSwap V2 QuoterV2.
  */
 export async function getSaucerSwapQuote(
   tokenInId: string,
   tokenOutId: string,
   amountIn: string,
   decimalsIn: number,
-  fee: number = 500 // Default 0.05% fee
+  fee: number = 3000 // Default 0.3% pool fee (Standard for SaucerSwap V2 pools)
 ): Promise<string | null> {
   try {
     const provider = new ethers.JsonRpcProvider(HEDERA_JSON_RPC_URL);
     const quoterAddress = toEvmAddress(QUOTER_CONTRACT_ID);
-    const quoter = new ethers.Contract(quoterAddress, QUOTER_ABI, provider);
+    const quoter = new ethers.Contract(quoterAddress, QUOTER_V2_ABI, provider);
 
     const amountInSmallestUnit = ethers.parseUnits(amountIn, decimalsIn);
     
-    // Path: [TokenIn, Fee, TokenOut]
-    const path = encodePath([tokenInId, tokenOutId], [fee]);
+    const params = {
+      tokenIn: toEvmAddress(tokenInId),
+      tokenOut: toEvmAddress(tokenOutId),
+      amountIn: amountInSmallestUnit,
+      fee: fee,
+      sqrtPriceLimitX96: 0
+    };
 
-    console.log(`[Quoter] Requesting quote for ${amountIn} (${tokenInId}) -> ${tokenOutId} via path ${path}`);
+    console.log(`[QuoterV2] Requesting quote for ${amountIn} (${tokenInId}) -> ${tokenOutId}`);
 
     // staticCall to simulate the transaction and get the return values
-    const result = await quoter.quoteExactInput.staticCall(path, amountInSmallestUnit);
+    const result = await quoter.quoteExactInputSingle.staticCall(params);
     
-    const amountOut = result[0];
+    const amountOut = result.amountOut;
     return amountOut.toString();
   } catch (error) {
-    console.error("[Quoter] Failed to fetch quote:", error);
+    console.error("[QuoterV2] Failed to fetch quote:", error);
     return null;
   }
 }
