@@ -185,12 +185,17 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     
     return {
       getSigner: async () => {
-        const universalProvider = appKit.getUniversalProvider();
-        if (!universalProvider) throw new Error("No provider available");
+        // Attempt to get the provider. appKit (createAppKit) usually has getProvider() or getAdapterProvider()
+        let universalProvider = (appKit as any).getUniversalProvider?.();
+        if (!universalProvider) {
+          universalProvider = await (appKit as any).getProvider?.();
+        }
+        
+        if (!universalProvider) throw new Error("No provider available. Please ensure your wallet is fully connected.");
 
         const topic = universalProvider.session?.topic;
         if (!topic) {
-          console.warn("[Web3Provider] No WalletConnect session topic found.");
+          console.warn("[Web3Provider] No WalletConnect session topic found. This is normal for browser extensions.");
         }
 
         return new DAppSigner(
