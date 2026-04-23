@@ -100,7 +100,7 @@ export default function SwapInterface() {
   const [receiveUsd, setReceiveUsd] = useState("0.00");
 
   const { prices } = usePriceFeed();
-  const { balances: liveBalances, isFetching: isFetchingBalances, refreshBalances } = useTokenBalances(hederaAccountId);
+  const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
   
   const [isClaiming, setIsClaiming] = useState(false);
   const [hasClaimed, setHasClaimed] = useState(false);
