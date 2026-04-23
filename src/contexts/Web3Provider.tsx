@@ -60,6 +60,7 @@ export const modal = createAppKit({
       chains: ["hedera:296"],
       methods: [
         "hedera_signAndExecuteTransaction",
+        "hedera_executeTransaction",
         "hedera_signTransaction",
         "hedera_signMessage",
       ],
@@ -218,20 +219,30 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
         const provider = await (connector as any).getProvider();
         if (!provider) throw new Error("No provider available");
 
-        // Path C: Native Extension (HashPack/Blade)
-        // Many extensions support hedera_signAndExecuteTransaction
         console.log("[Web3Provider] Executing via Injected Extension Provider...");
         
-        // This is a bridge: extensions expect the transaction bytes
+        // Use Uint8Array + btoa instead of Buffer for browser compatibility
         const bytes = transaction.toBytes();
-        const params = [
-          Buffer.from(bytes).toString("base64")
-        ];
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+        const params = [base64];
 
-        return await provider.request({
-          method: "hedera_signAndExecuteTransaction",
-          params: params
-        });
+        try {
+          // Try standard HIP-820 method first
+          return await provider.request({
+            method: "hedera_signAndExecuteTransaction",
+            params: params
+          });
+        } catch (err: any) {
+          // Fallback to older/alternative method if standard fails
+          if (err.message?.includes("does not exist") || err.message?.includes("method_not_found")) {
+            console.warn("[Web3Provider] hedera_signAndExecuteTransaction failed, trying hedera_executeTransaction...");
+            return await provider.request({
+              method: "hedera_executeTransaction",
+              params: params
+            });
+          }
+          throw err;
+        }
       }
     };
   }, [isConnected, connector, address, hederaAccountId, networkType]);
