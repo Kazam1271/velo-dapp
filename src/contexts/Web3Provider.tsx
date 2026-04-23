@@ -20,7 +20,7 @@ const networkType = process.env.NEXT_PUBLIC_NETWORK_TYPE || "testnet";
 const networks = networkType === "mainnet" ? [hedera, hederaTestnet] : [hederaTestnet];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
 
-const hederaNetworks = networkType === "mainnet" 
+const hederaNativeNetworks = networkType === "mainnet" 
   ? [HederaChainDefinition.Native.Mainnet] 
   : [HederaChainDefinition.Native.Testnet];
 
@@ -43,12 +43,12 @@ export const modal = createAppKit({
     wagmiAdapter,
     new HederaAdapter({ 
       projectId, 
-      networks: hederaNetworks as any, 
+      networks: hederaNativeNetworks as any, 
       namespaceMode: 'required',
       namespace: hederaNamespace
     })
   ],
-  networks: [...networks, ...hederaNetworks] as [any, ...any[]],
+  networks: [...networks, ...hederaNativeNetworks] as [any, ...any[]],
   allWallets: "SHOW",
   features: {
     analytics: true,
@@ -59,20 +59,19 @@ export const modal = createAppKit({
     "--w3m-accent": "#06b6d4",
     "--w3m-border-radius-master": "16px",
   },
-
   // Request official Hedera namespace permissions
   optionalNamespaces: {
-    [hederaNamespace]: {
+    hedera: {
+      chains: [networkType === "mainnet" ? "hedera:295" : "hedera:296"],
       methods: [
         "hedera_signAndExecuteTransaction",
-        "hedera_signTransaction",
         "hedera_signMessage",
       ],
-      chains: [networkType === "mainnet" ? "hedera:295" : "hedera:296"],
       events: ["chainChanged", "accountsChanged"],
     }
   },
 } as any);
+
 
 
 
