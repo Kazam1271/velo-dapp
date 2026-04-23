@@ -637,8 +637,8 @@ export default function SwapInterface() {
         // A. Send 0.25% Fee to Velo Treasury
         toast.loading("Step 1/2: Sending Service Fee...", { id: toastId });
         const feeTx = new TransferTransaction()
-          .addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.from(veloFeeAmount).negated())
-          .addHbarTransfer(AccountId.fromString("0.0.8647225"), Hbar.from(veloFeeAmount));
+          .addHbarTransfer(AccountId.fromString(hederaAccountId), Hbar.fromTinybars(Math.floor(veloFeeAmount * 1e8)).negated())
+          .addHbarTransfer(AccountId.fromString("0.0.8647225"), Hbar.fromTinybars(Math.floor(veloFeeAmount * 1e8)));
         
         await feeTx.freezeWithSigner(signer);
         await feeTx.executeWithSigner(signer);
@@ -647,7 +647,7 @@ export default function SwapInterface() {
         toast.loading("Step 2/2: Executing SaucerSwap V2 Trade...", { id: toastId });
         
         const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-        const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n; // 0.5% slippage
+        const amountOutMin = receiveAmount ? (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n : 0n; // 0.5% slippage
 
         const params = {
           tokenIn: WHBAR_EVM_ADDRESS,
@@ -670,7 +670,7 @@ export default function SwapInterface() {
         const swapTx = new ContractExecuteTransaction()
           .setContractId("0.0.3945930")
           .setGas(1000000)
-          .setPayableAmount(Hbar.from(swapAmountNet))
+          .setPayableAmount(Hbar.fromTinybars(Math.floor(swapAmountNet * 1e8)))
           .setFunctionParameters(encodedData);
 
         await swapTx.freezeWithSigner(signer);
@@ -716,7 +716,7 @@ export default function SwapInterface() {
         // iii. Swap
         toast.loading("Step 3/3: Executing SaucerSwap V2 Trade...", { id: toastId });
         const deadline = Math.floor(Date.now() / 1000) + 60 * 20;
-        const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n;
+        const amountOutMin = receiveAmount ? (ethers.parseUnits(receiveAmount, recvToken.decimals) * 995n) / 1000n : 0n;
 
         const params = {
           tokenIn: tokenInAddress,
