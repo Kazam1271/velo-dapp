@@ -9,7 +9,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
-import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter, HederaChainDefinition, createNamespaces } from "@hashgraph/hedera-wallet-connect";
+import { HederaJsonRpcMethod, DAppSigner, hederaNamespace, HederaAdapter, HederaChainDefinition } from "@hashgraph/hedera-wallet-connect";
 import { AccountId, TransactionId, LedgerId } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -54,9 +54,18 @@ export const modal = createAppKit({
     "--w3m-border-radius-master": "16px",
   },
   allWallets: "SHOW",
-  // REQUIRED: Use the official export to force the correct handshake
-  requiredNamespaces: createNamespaces(hederaNativeNetworks),
-  optionalNamespaces: createNamespaces(hederaNativeNetworks),
+  // Force the wallet to acknowledge these methods
+  optionalNamespaces: {
+    hedera: {
+      chains: ["hedera:296", "hedera:testnet"],
+      methods: [
+        "hedera_signAndExecuteTransaction",
+        "hedera_signTransaction",
+        "hedera_signMessage",
+      ],
+      events: ["chainChanged", "accountsChanged"],
+    },
+  },
 } as any);
 
 const queryClient = new QueryClient();
