@@ -54,21 +54,10 @@ export const modal = createAppKit({
     "--w3m-border-radius-master": "16px",
   },
   allWallets: "SHOW",
-  // Request official Hedera namespace permissions
+  // Force the wallet to acknowledge these methods during the initial connection
   requiredNamespaces: {
     hedera: {
-      chains: ["hedera:296"],
-      methods: [
-        "hedera_signAndExecuteTransaction",
-        "hedera_signTransaction",
-        "hedera_signMessage",
-      ],
-      events: ["chainChanged", "accountsChanged"],
-    },
-  },
-  optionalNamespaces: {
-    hedera: {
-      chains: ["hedera:296"],
+      chains: ["hedera:testnet", "hedera:296"], 
       methods: [
         "hedera_signAndExecuteTransaction",
         "hedera_signTransaction",
