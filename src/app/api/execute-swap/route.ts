@@ -88,8 +88,11 @@ export async function POST(req: Request) {
     }
 
     // 4. CO-SIGN AND SUBMIT
+    console.log(`[Brokerage] Transaction ID: ${tx.transactionId?.toString()}`);
     console.log("[Brokerage] Transaction validated. Treasury co-signing...");
-    const signedTx = await tx.sign(treasuryKey);
+    
+    // signWithOperator is more robust when the treasury is the client operator
+    const signedTx = await tx.signWithOperator(client);
     const response = await signedTx.execute(client);
     const receipt = await response.getReceipt(client);
 
