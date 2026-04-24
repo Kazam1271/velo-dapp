@@ -215,7 +215,8 @@ export default function SwapInterface() {
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
 
-      const tx = new TransferTransaction();
+      const tx = new TransferTransaction()
+        .setNodeAccountIds([new AccountId(3)]);
 
       // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
