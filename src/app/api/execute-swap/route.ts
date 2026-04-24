@@ -91,9 +91,11 @@ export async function POST(req: Request) {
     console.log(`[Brokerage] Transaction ID: ${tx.transactionId?.toString()}`);
     console.log("[Brokerage] Transaction validated. Treasury co-signing...");
     
-    // signWithOperator is more robust when the treasury is the client operator
-    const signedTx = await tx.signWithOperator(client);
-    const response = await signedTx.execute(client);
+    // Explicitly add treasury signature to the multi-sig transaction
+    const sig = treasuryKey.sign(tx.getTransactionHash());
+    tx.addSignature(treasuryKey.publicKey, sig);
+    
+    const response = await tx.execute(client);
     const receipt = await response.getReceipt(client);
 
     return NextResponse.json({ 

@@ -18,8 +18,7 @@ import {
   TransactionId, 
   AccountId, 
   TokenId,
-  TokenAssociateTransaction,
-  Transaction 
+  TokenAssociateTransaction 
 } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -193,11 +192,12 @@ export default function SwapInterface() {
 
     setIsSwapping(true);
     const toastId = toast.loading("Initializing Atomic Brokerage Swap...");
+    const treasuryId = "0.0.8642596";
 
     try {
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
 
-      // 1. Association Check (Still handled by dApp as a separate transaction if needed)
+      // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
         const associateTx = new TokenAssociateTransaction()
@@ -211,48 +211,68 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2. Ask Backend to act as Oracle and build the co-signed transaction
-      toast.loading("Oracle is building co-signed transaction...", { id: toastId });
+      // 2. Build the FULL Atomic Transfer (User & Treasury sides)
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
 
-      const response = await fetch('/api/build-swap', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const tx = new TransferTransaction();
+
+      // User -> Treasury (Payment)
+      if (payToken.tokenId === "NATIVE") {
+        tx.addHbarTransfer(userAddress, new Hbar(-payAmountNum))
+          .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
+      } else {
+        const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
+        tx.addTokenTransfer(payToken.tokenId, userAddress, -payTiny)
+          .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
+      }
+
+      // Treasury -> User (Payout)
+      if (recvToken.tokenId === "NATIVE") {
+        tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
+          .addHbarTransfer(userAddress, new Hbar(recvAmountNum));
+      } else {
+        const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
+        tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
+          .addTokenTransfer(recvToken.tokenId, userAddress, recvTiny);
+      }
+
+      // 3. User pays network fees
+      await (tx as any).freezeWithSigner(signer);
+
+      // 4. Request User Signature
+      toast.loading("Please sign the atomic swap in HashPack...", { id: toastId });
+      const signedTx = await (signer as any).signTransaction(tx as any);
+
+      // 5. Submit to Backend for Verification and Co-Signature
+      toast.loading("Verifying with Oracle and co-signing...", { id: toastId });
+      const txBytes = Buffer.from(signedTx.toBytes()).toString("hex");
+
+      const response = await fetch("/api/execute-swap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
+          transactionBytes: txBytes,
           hbarAmount: payAmountNum,
           tokenOutId: recvToken.tokenId,
-          userAddress: userAddress,
           expectedOut: recvAmountNum
         })
       });
 
       const result = await response.json();
-      if (!result.success) throw new Error(result.error);
+      if (!response.ok) throw new Error(result.error || "Brokerage execution failed");
 
-      // 3. Reconstruct the half-signed transaction
-      const txBytes = Buffer.from(result.transactionBytes, 'hex');
-      const tx = Transaction.fromBytes(txBytes);
+      toast.success("Brokerage Swap Complete!", {
+        id: toastId,
+        description: `Successfully swapped via OTC Treasury. Rate: ${result.executedRate}`,
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.txId}`, "_blank")
+        }
+      });
 
-      // 4. HashConnect gets user signature and broadcasts natively!
-      toast.loading("Please sign the brokerage swap in your wallet...", { id: toastId });
-      const executionResult = await (signer as any).executeTransaction(tx);
-      
-      if (executionResult.transactionId) {
-        toast.success("Brokerage Swap Complete!", {
-          id: toastId,
-          description: `Successfully executed via OTC Treasury. Rate: ${result.calculatedRate}`,
-          action: {
-            label: "View HashScan",
-            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
-          }
-        });
-
-        setPayAmount("");
-        setTimeout(refreshBalances, 2000);
-      } else {
-        throw new Error("Transaction execution failed or was cancelled.");
-      }
+      setPayAmount("");
+      refreshBalances();
 
     } catch (error: any) {
       console.error("[Swap] Brokerage Error:", error);
