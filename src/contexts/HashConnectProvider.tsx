@@ -106,10 +106,8 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const disconnect = async () => {
-        if (pairingData?.topic) {
-            await hashconnect.disconnect(pairingData.topic);
-            setPairingData(null);
-        }
+        await hashconnect.disconnect();
+        setPairingData(null);
     };
 
     return (
