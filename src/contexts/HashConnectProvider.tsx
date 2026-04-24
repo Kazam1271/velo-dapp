@@ -21,6 +21,7 @@ interface HashConnectContextType {
     hederaAccountId: string | null;
     balance: string;
     isRefreshingBalance: boolean;
+    isConnected: boolean;
     connect: () => void;
     disconnect: () => void;
 }
@@ -44,6 +45,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     // Derived states
     const hederaAccountId = pairingData?.accountIds?.[0] || null;
     const address = hederaAccountId;
+    const isConnected = state === HashConnectConnectionState.Connected || state === HashConnectConnectionState.Paired;
 
     const fetchBalance = useCallback(async () => {
         if (!hederaAccountId) {
@@ -139,6 +141,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             hederaAccountId, 
             balance, 
             isRefreshingBalance,
+            isConnected,
             connect,
             disconnect 
         }}>

@@ -72,10 +72,9 @@ const getTokenPriceUsd = (symbol: string, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { hashconnect, state, pairingData, connect, balance, isRefreshingBalance } = useHashConnect();
+  const { hashconnect, state, pairingData, isConnected, balance, isRefreshingBalance } = useHashConnect();
   
-  // Derive connection status and address as per mission requirements
-  const isConnected = state === HashConnectConnectionState.Connected;
+  // Derive address as per mission requirements
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
   // ── Task 1: Phantom Balance Fix ──────────────────────────
