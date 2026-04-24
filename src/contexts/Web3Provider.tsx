@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
-import { createAppKit, useAppKit } from "@reown/appkit/react";
+import { createAppKit, useAppKit, useAppKitProvider } from "@reown/appkit/react";
 import { WagmiAdapter } from "@reown/appkit-adapter-wagmi";
 import { hederaTestnet } from "@reown/appkit/networks";
 import { WagmiProvider, useAccount, useDisconnect } from "wagmi";
@@ -158,6 +158,8 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     return "hedera";
   }, [connector]);
 
+  const { walletProvider } = (useAppKitProvider as any)("hedera");
+
   const walletInterface = useMemo(() => {
     if (!isConnected || !connector || !address || !hederaAccountId) return null;
     
@@ -167,14 +169,13 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       address,
 
       getSigner: async () => {
-        // Path A: WalletConnect / AppKit Universal Provider
-        const universalProvider = (modal as any).getUniversalProvider();
-        const sessionTopic = universalProvider?.session?.topic;
+        // Path A: WalletConnect / AppKit Provider (via hook)
+        const sessionTopic = (walletProvider as any)?.session?.topic;
 
-        if (universalProvider && sessionTopic) {
+        if (walletProvider && sessionTopic) {
           return new DAppSigner(
             AccountId.fromString(hederaAccountId),
-            universalProvider,
+            walletProvider as any,
             sessionTopic
           );
         }
@@ -186,7 +187,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
         }
 
         // The Guardrail:
-        const msg = "Signer state lost. This often happens after a refresh or session timeout. Please DISCONNECT and reconnect using the 'WalletConnect' option to restore the bridge.";
+        const msg = "Signer state lost or session timeout. Please DISCONNECT and reconnect using the 'WalletConnect' option to restore the bridge.";
         alert(msg);
         throw new Error(msg);
       },
