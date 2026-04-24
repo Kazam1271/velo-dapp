@@ -31,7 +31,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
         if (typeof window !== 'undefined') {
             console.log("[HashConnect] Creating instance with Ledger: testnet, ProjectID:", projectId);
-            return new HashConnect("testnet" as any, projectId, appMetadata, false);
+            return new HashConnect(LedgerId.TESTNET, projectId, appMetadata, true);
         }
         return null as any;
     });
@@ -73,9 +73,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         const init = async () => {
             console.log("[HashConnect] Initializing with Project ID:", projectId);
             try {
-                await hashconnect.init();
-                console.log("[HashConnect] Initialization complete");
-                
+                // Set up event listeners BEFORE calling init()
                 hashconnect.connectionStatusChangeEvent.on((status: HashConnectConnectionState) => {
                     console.log("[HashConnect] Connection status changed:", status);
                     setState(status);
@@ -93,6 +91,9 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                     setState(HashConnectConnectionState.Disconnected);
                     toast.info("Wallet Disconnected");
                 });
+
+                await hashconnect.init();
+                console.log("[HashConnect] Initialization complete");
             } catch (error) {
                 console.error("[HashConnect] Init error:", error);
             }
