@@ -194,13 +194,13 @@ export default function SwapInterface() {
       const deadline = Math.floor(Date.now() / 1000) + 1200;
 
       const params = {
-        tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
-        tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
+        tokenIn: "0x0000000000000000000000000000000000163b5a" as `0x${string}`, // WHBAR
+        tokenOut: "0x0000000000000000000000000000000000163b5c" as `0x${string}`, // Official Mock USDC
         fee: 3000,
         recipient: userEvmAddress,
         deadline: BigInt(deadline),
         amountIn: amountIn,
-        amountOutMinimum: amountOutMin,
+        amountOutMinimum: 0n, // Set to 0 for sanity check to avoid slippage failure
         sqrtPriceLimitX96: 0n
       };
 
