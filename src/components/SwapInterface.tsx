@@ -72,7 +72,8 @@ const getTokenPriceUsd = (symbol: string, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { isConnected, address, hederaAccountId, balance, isRefreshingBalance, walletInterface } = useWeb3();
+  const { hashconnect, state, pairingData, hederaAccountId, balance, isRefreshingBalance } = useHashConnect();
+  const isConnected = state === HashConnectConnectionState.Connected;
   const [isSwapping, setIsSwapping] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
