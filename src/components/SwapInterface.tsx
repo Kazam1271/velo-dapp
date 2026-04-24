@@ -113,7 +113,7 @@ export default function SwapInterface() {
           .setAccountId(AccountId.fromString(hederaAccountId))
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
-        const signer = await walletInterface?.getSigner();
+        const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId));
         await associateTx.freezeWithSigner(signer);
         await associateTx.executeWithSigner(signer);
         
