@@ -13,9 +13,6 @@ const appMetadata = {
 
 const projectId = "77347672d58ccce678cc86eee18c5918";
 
-// Initialize HashConnect v3 correctly
-const hashconnect = new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
-
 interface HashConnectContextType {
     hashconnect: HashConnect;
     state: HashConnectConnectionState;
@@ -31,14 +28,21 @@ interface HashConnectContextType {
 const HashConnectContext = createContext<HashConnectContextType | null>(null);
 
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
+    const [hashconnect, setHashconnect] = useState<HashConnect | null>(null);
     const [state, setState] = useState(HashConnectConnectionState.Disconnected);
     const [pairingData, setPairingData] = useState<SessionData | null>(null);
     const [balance, setBalance] = useState("0.00");
     const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
 
+    // Initialize on client only
+    useEffect(() => {
+        const instance = new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
+        setHashconnect(instance);
+    }, []);
+
     // Derived states
     const hederaAccountId = pairingData?.accountIds?.[0] || null;
-    const address = hederaAccountId; // Use account ID as the address in native mode
+    const address = hederaAccountId;
 
     const fetchBalance = useCallback(async () => {
         if (!hederaAccountId) {
@@ -63,6 +67,8 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     }, [hederaAccountId]);
 
     useEffect(() => {
+        if (!hashconnect) return;
+
         const init = async () => {
             await hashconnect.init();
             
@@ -89,7 +95,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             (hashconnect.pairingEvent as any).off();
             (hashconnect.disconnectionEvent as any).off();
         };
-    }, []);
+    }, [hashconnect]);
 
     useEffect(() => {
         fetchBalance();
@@ -98,6 +104,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     }, [fetchBalance]);
 
     const connect = () => {
+        if (!hashconnect) return;
         try {
             hashconnect.openPairingModal();
         } catch (error: any) {
@@ -106,13 +113,14 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const disconnect = async () => {
+        if (!hashconnect) return;
         await hashconnect.disconnect();
         setPairingData(null);
     };
 
     return (
         <HashConnectContext.Provider value={{ 
-            hashconnect, 
+            hashconnect: hashconnect!, // Cast because we check in useHashConnect
             state, 
             pairingData, 
             address, 
