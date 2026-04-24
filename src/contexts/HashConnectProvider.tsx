@@ -99,7 +99,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
 
     const connect = () => {
         try {
-            hashconnect.connectToLocalWallet();
+            hashconnect.openPairingModal();
         } catch (error: any) {
             toast.error("Connection Failed", { description: error.message });
         }
