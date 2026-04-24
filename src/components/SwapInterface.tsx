@@ -227,12 +227,12 @@ export default function SwapInterface() {
 
       // 3. Reconstruct and Execute via HashConnect
       toast.loading("Waiting for your signature...", { id: toastId });
-      const tx = TransferTransaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
+      const tx = Transaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
       
-      // signer.executeTransaction handles the final user signature and network submission
-      const executionResult = await (signer as any).executeTransaction(tx);
+      // Use the correct Hiero SDK syntax: execute the transaction using the signer
+      const executionResult = await (tx as any).executeWithSigner(signer);
       
-      if (executionResult.status.toString() === "SUCCESS" || executionResult.status === 22) {
+      if (executionResult && executionResult.transactionId) {
         toast.success("Brokerage Swap Complete!", {
           id: toastId,
           description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
