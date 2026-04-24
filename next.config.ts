@@ -12,6 +12,8 @@ const nextConfig: NextConfig = {
         net: false,
         tls: false,
       };
+    } else {
+      config.externals.push('crypto');
     }
     return config;
   },
