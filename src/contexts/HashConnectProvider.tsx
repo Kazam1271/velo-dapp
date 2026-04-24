@@ -31,7 +31,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
         if (typeof window !== 'undefined') {
             console.log("[HashConnect] Creating instance with Ledger: testnet, ProjectID:", projectId);
-            return new HashConnect("testnet", projectId, appMetadata, false);
+            return new HashConnect("testnet" as any, projectId, appMetadata, false);
         }
         return null as any;
     });
