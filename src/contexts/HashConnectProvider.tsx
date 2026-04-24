@@ -106,7 +106,8 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const connect = () => {
         if (!hashconnect) return;
         try {
-            hashconnect.openPairingModal();
+            // This is the magic command for the browser extension
+            (hashconnect as any).connectToLocalWallet();
         } catch (error: any) {
             toast.error("Connection Failed", { description: error.message });
         }
