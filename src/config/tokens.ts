@@ -30,7 +30,7 @@ export const TOKEN_LIST: Token[] = [
     name: "USD Coin",
     iconUrl: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
     decimals: 6,
-    tokenId: "0.0.5449", // Official USDC Testnet ID
+    tokenId: "0.0.8735221", // Updated to minted mock USDC
     mainnetId: "0.0.456858",
     badge: "verified",
     iconBg: "#2775ca",
@@ -59,9 +59,9 @@ export const TOKEN_LIST: Token[] = [
     symbol: "BONZO",
     name: "Bonzo Finance",
     iconUrl: "https://assets.coingecko.com/coins/images/35000/large/bonzo.png",
-    decimals: 8,
-    tokenId: "0.0.8735150", // Updated to new minted mock
-    mainnetId: "0.0.4578144", // Updated per user table (mainnet)
+    decimals: 6,
+    tokenId: "0.0.8735150", 
+    mainnetId: "0.0.4578144", 
     badge: "trending",
     iconBg: "#0d0d1a",
   },
@@ -69,8 +69,8 @@ export const TOKEN_LIST: Token[] = [
     symbol: "PACK",
     name: "Pack Token",
     iconUrl: "https://assets.coingecko.com/coins/images/37628/large/pack.png",
-    decimals: 8,
-    tokenId: "0.0.8735151", // Updated to new minted mock
+    decimals: 6,
+    tokenId: "0.0.8735151", 
     mainnetId: "0.0.4792777", 
     iconBg: "#16213e",
   },

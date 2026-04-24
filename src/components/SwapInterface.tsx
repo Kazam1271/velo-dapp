@@ -5,17 +5,19 @@ import { useRef, useState, useEffect, useMemo } from "react";
 import { useWeb3 } from "@/contexts/Web3Provider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
-import { motion } from "framer-motion";
+import { Buffer } from "buffer";
+import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { 
-  TokenAssociateTransaction, 
-  ContractExecuteTransaction,
+  TransferTransaction, 
+  Hbar, 
+  TransactionId, 
   AccountId, 
-  TokenId, 
-  Hbar
+  TokenId,
+  TokenAssociateTransaction 
 } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -169,86 +171,86 @@ export default function SwapInterface() {
   }, [payAmount, payToken, recvToken, prices]);
 
   const handleSwap = async () => {
-    if (!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0 || !walletInterface) return;
+    if (!address || !hederaAccountId || !walletInterface || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
-    const toastId = toast.loading(`Initializing Swap via ${walletInterface.walletType.toUpperCase()} Path...`);
+    const toastId = toast.loading("Initializing Atomic Swap...");
+    const treasuryId = "0.0.8642596";
 
     try {
-      // 1. Association Check
+      const signer = await walletInterface.getSigner();
+
+      // 1. Association Check (If receiving a token)
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
-        toast.loading("Association Required", { id: toastId, description: `Associating ${recvToken.symbol}...` });
+        toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
         const associateTx = new TokenAssociateTransaction()
           .setAccountId(AccountId.fromString(hederaAccountId!))
           .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        const signer = await walletInterface.getSigner();
         await associateTx.freezeWithSigner(signer);
         await associateTx.executeWithSigner(signer);
       }
 
-      // 2. Prepare Swap Data
-      const type = walletInterface.walletType;
-      const userEvmAddress = (address?.startsWith("0x") ? address : `0x${AccountId.fromString(hederaAccountId!).toSolidityAddress()}`) as `0x${string}`;
-      const amountIn = ethers.parseUnits(payAmount, payToken.decimals);
-      const amountOutMin = (ethers.parseUnits(receiveAmount, recvToken.decimals) * 99n) / 100n; // 1% slippage
-      const deadline = Math.floor(Date.now() / 1000) + 1200;
+      // 2. Build the Atomic Transfer
+      const tx = new TransferTransaction();
+      const payAmountNum = parseFloat(payAmount);
+      const recvAmountNum = parseFloat(receiveAmount);
 
-      const params = {
-        tokenIn: (payToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(payToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
-        tokenOut: (recvToken.symbol === "HBAR" ? WHBAR_EVM_ADDRESS : `0x${TokenId.fromString(recvToken.tokenId).toSolidityAddress()}`) as `0x${string}`,
-        fee: 3000,
-        recipient: userEvmAddress,
-        deadline: BigInt(deadline),
-        amountIn: amountIn,
-        amountOutMinimum: amountOutMin,
-        sqrtPriceLimitX96: 0n
-      };
-
-      let result;
-
-      if (type === "metamask") {
-        // Path A: MetaMask / EVM RPC
-        const abi = new ethers.Interface(ROUTER_V2_ABI);
-        const data = abi.encodeFunctionData("exactInputSingle", [params]);
-        const value = payToken.symbol === "HBAR" ? "0x" + amountIn.toString(16) : "0x0";
-
-        result = await walletInterface.executeSwap("metamask", {
-          from: address,
-          to: SAUCER_ROUTER_V2_EVM,
-          data,
-          value
-        });
+      // User -> Treasury (Pay)
+      if (payToken.tokenId === "NATIVE") {
+        tx.addHbarTransfer(address, new Hbar(-payAmountNum))
+          .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
       } else {
-        // Path B: Hedera Native RPC
-        const abi = new ethers.Interface(ROUTER_V2_ABI);
-        const data = abi.encodeFunctionData("exactInputSingle", [params]);
-        
-        const tx = new ContractExecuteTransaction()
-          .setContractId(SAUCER_ROUTER_V2_NATIVE)
-          .setGas(1000000)
-          .setFunctionParameters(ethers.getBytes(data));
-
-        if (payToken.symbol === "HBAR") tx.setPayableAmount(Hbar.fromTinybars(Number(amountIn)));
-
-        const signer = await walletInterface.getSigner();
-        await tx.freezeWithSigner(signer);
-        const bytes = tx.toBytes();
-        const base64 = Buffer.from(bytes).toString("base64");
-
-        result = await walletInterface.executeSwap("hedera", base64);
+        const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
+        tx.addTokenTransfer(payToken.tokenId, address, -payTiny)
+          .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
       }
 
-      toast.success("SWAP SUCCESSFUL", {
-        id: toastId,
-        description: `Successfully swapped via SaucerSwap V2 ${type === "metamask" ? "EVM" : "Native"} Engine.`,
-        action: { label: "View HashScan", onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.transactionId}`, "_blank") },
+      // Treasury -> User (Receive)
+      if (recvToken.tokenId === "NATIVE") {
+        tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
+          .addHbarTransfer(address, new Hbar(recvAmountNum));
+      } else {
+        const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
+        tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
+          .addTokenTransfer(recvToken.tokenId, address, recvTiny);
+      }
+
+      // 3. User pays network fees
+      tx.setTransactionId(TransactionId.generate(address));
+      await tx.freezeWithSigner(signer);
+
+      // 4. Request User Signature
+      toast.loading("Please sign the transfer in your wallet...", { id: toastId });
+      const signedTx = await signer.signTransaction(tx);
+
+      // 5. Submit to Backend for Treasury Co-Signature
+      toast.loading("Submitting to Treasury for co-signing...", { id: toastId });
+      const txBytes = Buffer.from(signedTx.toBytes()).toString("hex");
+
+      const response = await fetch("/api/execute-swap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transactionBytes: txBytes })
       });
 
-      refreshBalances();
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Treasury swap failed");
+
+      toast.success("Atomic Swap Complete!", {
+        id: toastId,
+        description: `Successfully swapped ${payAmount} ${payToken.symbol} for ${receiveAmount} ${recvToken.symbol}`,
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.txId}`, "_blank")
+        }
+      });
+
       setPayAmount("");
-    } catch (err: any) {
-      console.error("Swap execution failed:", err);
-      toast.error("Swap Failed", { id: toastId, description: err.message });
+      refreshBalances();
+
+    } catch (error: any) {
+      console.error("[Swap] Atomic Error:", error);
+      toast.error("Swap Failed", { id: toastId, description: error.message });
     } finally {
       setIsSwapping(false);
     }
