@@ -2,7 +2,8 @@
 
 import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useWeb3 } from "@/contexts/Web3Provider";
+import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { HashConnectConnectionState } from "hashconnect";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { Buffer } from "buffer";
@@ -171,14 +172,14 @@ export default function SwapInterface() {
   }, [payAmount, payToken, recvToken, prices]);
 
   const handleSwap = async () => {
-    if (!address || !hederaAccountId || !walletInterface || !payAmount || parseFloat(payAmount) <= 0) return;
+    if (!isConnected || !hederaAccountId || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
     const toastId = toast.loading("Initializing Atomic Brokerage Swap...");
     const treasuryId = "0.0.8642596";
 
     try {
-      const signer = await walletInterface.getSigner();
+      const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId));
 
       // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
@@ -191,38 +192,36 @@ export default function SwapInterface() {
       }
 
       // 2. Build the FULL Atomic Transfer (User & Treasury sides)
-      // Note: We build it in the frontend for user signing, but the backend 
-      // will VERIFY the rates against the oracle before co-signing.
       const tx = new TransferTransaction();
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
 
       // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(address, new Hbar(-payAmountNum))
+        tx.addHbarTransfer(hederaAccountId, new Hbar(-payAmountNum))
           .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
       } else {
         const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
-        tx.addTokenTransfer(payToken.tokenId, address, -payTiny)
+        tx.addTokenTransfer(payToken.tokenId, hederaAccountId, -payTiny)
           .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
       }
 
       // Treasury -> User (Payout)
       if (recvToken.tokenId === "NATIVE") {
         tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
-          .addHbarTransfer(address, new Hbar(recvAmountNum));
+          .addHbarTransfer(hederaAccountId, new Hbar(recvAmountNum));
       } else {
         const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
         tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
-          .addTokenTransfer(recvToken.tokenId, address, recvTiny);
+          .addTokenTransfer(recvToken.tokenId, hederaAccountId, recvTiny);
       }
 
       // 3. User pays network fees
-      tx.setTransactionId(TransactionId.generate(address));
+      tx.setTransactionId(TransactionId.generate(hederaAccountId));
       await tx.freezeWithSigner(signer);
 
       // 4. Request User Signature
-      toast.loading("Please sign the atomic swap in your wallet...", { id: toastId });
+      toast.loading("Please sign the atomic swap in HashPack...", { id: toastId });
       const signedTx = await signer.signTransaction(tx);
 
       // 5. Submit to Backend for Verification and Co-Signature

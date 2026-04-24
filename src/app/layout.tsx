@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { Web3Provider } from "@/contexts/Web3Provider";
+import { HashConnectProvider } from "@/contexts/HashConnectProvider";
+import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: "Velo",
@@ -18,9 +19,10 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col font-sans">
-        <Web3Provider>
+        <HashConnectProvider>
           {children}
-        </Web3Provider>
+          <Toaster position="bottom-right" theme="dark" />
+        </HashConnectProvider>
       </body>
     </html>
   );
