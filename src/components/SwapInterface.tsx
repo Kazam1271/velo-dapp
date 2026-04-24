@@ -268,17 +268,24 @@ export default function SwapInterface() {
     setPayAmount(raw.toFixed(2));
   };
 
-  const payInfo = useMemo(() => {
-    if (payToken.tokenId === "NATIVE") return { value: balance, isLoading: isRefreshingBalance };
-    const val = liveBalances[payToken.tokenId];
+  const getTokenBalanceInfo = (token: Token) => {
+    if (token.tokenId === "NATIVE") {
+      return { value: balance, isLoading: isRefreshingBalance };
+    }
+    const val = liveBalances[token.tokenId];
     return { value: val ?? "0.00", isLoading: isFetchingBalances };
-  }, [payToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+  };
 
-  const recvInfo = useMemo(() => {
-    if (recvToken.tokenId === "NATIVE") return { value: balance, isLoading: isRefreshingBalance };
-    const val = liveBalances[recvToken.tokenId];
-    return { value: val ?? "0.00", isLoading: isFetchingBalances };
-  }, [recvToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+  const payInfo = useMemo(() => getTokenBalanceInfo(payToken), [payToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+  const recvInfo = useMemo(() => getTokenBalanceInfo(recvToken), [recvToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
+
+  const enrichedTokens = useMemo(() => {
+    return TOKEN_LIST.map(t => ({
+      ...t,
+      balance: getTokenBalanceInfo(t).value,
+      isLoading: getTokenBalanceInfo(t).isLoading
+    }));
+  }, [TOKEN_LIST, liveBalances, balance, isRefreshingBalance, isFetchingBalances]);
 
   return (
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4">
@@ -330,7 +337,13 @@ export default function SwapInterface() {
               onChange={(e) => setPayAmount(e.target.value.replace(/[^0-9.]/g, ""))}
               className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
             />
-            <TokenDropdown label="Pay" selected={payToken} disabledSymbol={recvToken.symbol} onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
+            <TokenDropdown 
+              label="Pay" 
+              selected={payToken} 
+              tokens={enrichedTokens}
+              disabledSymbol={recvToken.symbol} 
+              onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} 
+            />
           </div>
           {payAmount && (
             <div className="text-xs text-gray-500 mt-1 px-1">
@@ -361,7 +374,13 @@ export default function SwapInterface() {
           </div>
           <div className="flex items-center justify-between gap-4">
             <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
-            <TokenDropdown label="Receive" selected={recvToken} disabledSymbol={payToken.symbol} onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} />
+            <TokenDropdown 
+              label="Receive" 
+              selected={recvToken} 
+              tokens={enrichedTokens}
+              disabledSymbol={payToken.symbol} 
+              onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} 
+            />
           </div>
           {receiveAmount && (
             <div className="text-xs text-gray-500 mt-1 px-1">
@@ -391,7 +410,7 @@ export default function SwapInterface() {
   );
 }
 
-function TokenDropdown({ label, selected, onSelect, disabledSymbol }: { label: string, selected: Token, onSelect: (t: Token) => void, disabledSymbol: string }) {
+function TokenDropdown({ label, selected, tokens, onSelect, disabledSymbol }: { label: string, selected: Token, tokens: any[], onSelect: (t: Token) => void, disabledSymbol: string }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -405,17 +424,19 @@ function TokenDropdown({ label, selected, onSelect, disabledSymbol }: { label: s
 
   return (
     <div className="relative" ref={dropdownRef}>
-      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] transition-all rounded-2xl px-3 py-2 border border-velo-border group">
-        <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
-          <img src={selected.iconUrl} alt={selected.symbol} className="w-full h-full object-contain" />
+      <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] transition-all rounded-2xl px-3 py-2 border border-velo-border group min-w-[110px] justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
+            <img src={selected.iconUrl} alt={selected.symbol} className="w-full h-full object-contain" />
+          </div>
+          <span className="text-white font-bold text-sm tracking-wide">{selected.symbol}</span>
         </div>
-        <span className="text-white font-bold text-sm tracking-wide">{selected.symbol}</span>
         <ChevronDown size={16} className={`text-gray-500 group-hover:text-velo-cyan transition-transform ${isOpen ? "rotate-180" : ""}`} />
       </button>
 
       {isOpen && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="absolute right-0 mt-2 w-64 bg-[#1a2130] border border-velo-border rounded-2xl shadow-2xl z-50 overflow-hidden py-2">
-          {TOKEN_LIST.map((t) => (
+          {tokens.map((t) => (
             <button
               key={t.symbol}
               disabled={t.symbol === disabledSymbol}
@@ -434,7 +455,10 @@ function TokenDropdown({ label, selected, onSelect, disabledSymbol }: { label: s
                   <div className="text-[10px] text-gray-500">{t.name}</div>
                 </div>
               </div>
-              {selected.symbol === t.symbol && <ShieldCheck size={16} className="text-velo-cyan" />}
+              <div className="text-right">
+                <div className="text-xs font-bold text-white">{t.balance}</div>
+                {t.isLoading && <RefreshCw size={8} className="animate-spin text-velo-cyan ml-auto" />}
+              </div>
             </button>
           ))}
         </motion.div>
