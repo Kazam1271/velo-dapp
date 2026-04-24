@@ -191,8 +191,7 @@ export default function SwapInterface() {
     if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
-    const toastId = toast.loading("Initializing Atomic Brokerage Swap...");
-    const treasuryId = "0.0.8642596";
+    const toastId = toast.loading("Requesting Quote from Oracle...");
 
     try {
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
@@ -211,68 +210,43 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2. Build the FULL Atomic Transfer (User & Treasury sides)
-      const payAmountNum = parseFloat(payAmount);
-      const recvAmountNum = parseFloat(receiveAmount);
-
-      const tx = new TransferTransaction();
-
-      // User -> Treasury (Payment)
-      if (payToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(userAddress, new Hbar(-payAmountNum))
-          .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
-      } else {
-        const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
-        tx.addTokenTransfer(payToken.tokenId, userAddress, -payTiny)
-          .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
-      }
-
-      // Treasury -> User (Payout)
-      if (recvToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
-          .addHbarTransfer(userAddress, new Hbar(recvAmountNum));
-      } else {
-        const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
-        tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
-          .addTokenTransfer(recvToken.tokenId, userAddress, recvTiny);
-      }
-
-      // 3. User pays network fees
-      await (tx as any).freezeWithSigner(signer);
-
-      // 4. Request User Signature
-      toast.loading("Please sign the atomic swap in HashPack...", { id: toastId });
-      const signedTx = await (signer as any).signTransaction(tx as any);
-
-      // 5. Submit to Backend for Verification and Co-Signature
-      toast.loading("Verifying with Oracle and co-signing...", { id: toastId });
-      const txBytes = Buffer.from(signedTx.toBytes()).toString("hex");
-
-      const response = await fetch("/api/execute-swap", {
+      // 2. Request Backend to BUILD and CO-SIGN the transaction
+      toast.loading("Building Atomic Transaction...", { id: toastId });
+      const response = await fetch("/api/build-swap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          transactionBytes: txBytes,
-          hbarAmount: payAmountNum,
+          hbarAmount: parseFloat(payAmount),
           tokenOutId: recvToken.tokenId,
-          expectedOut: recvAmountNum
+          userAddress: userAddress
         })
       });
 
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Brokerage execution failed");
+      if (!response.ok || !result.success) throw new Error(result.error || "Failed to build transaction");
 
-      toast.success("Brokerage Swap Complete!", {
-        id: toastId,
-        description: `Successfully swapped via OTC Treasury. Rate: ${result.executedRate}`,
-        action: {
-          label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.txId}`, "_blank")
-        }
-      });
-
-      setPayAmount("");
-      refreshBalances();
+      // 3. Reconstruct and Execute via HashConnect
+      toast.loading("Waiting for your signature...", { id: toastId });
+      const tx = TransferTransaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
+      
+      // signer.executeTransaction handles the final user signature and network submission
+      const executionResult = await (signer as any).executeTransaction(tx);
+      
+      if (executionResult.status.toString() === "SUCCESS" || executionResult.status === 22) {
+        toast.success("Brokerage Swap Complete!", {
+          id: toastId,
+          description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
+          action: {
+            label: "View HashScan",
+            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
+          }
+        });
+        
+        setPayAmount("");
+        refreshBalances();
+      } else {
+        throw new Error(`Transaction failed with status: ${executionResult.status}`);
+      }
 
     } catch (error: any) {
       console.error("[Swap] Brokerage Error:", error);
