@@ -1,8 +1,10 @@
-import Header from "@/components/Header";
-import SwapInterface from "@/components/SwapInterface";
-import HCSLiveFeed from "@/components/HCSLiveFeed";
-import BottomNav from "@/components/BottomNav";
+import dynamic from "next/dynamic";
 import { HCSDataProvider } from "@/contexts/HCSDataProvider";
+
+const Header = dynamic(() => import("@/components/Header"), { ssr: false });
+const SwapInterface = dynamic(() => import("@/components/SwapInterface"), { ssr: false });
+const HCSLiveFeed = dynamic(() => import("@/components/HCSLiveFeed"), { ssr: false });
+const BottomNav = dynamic(() => import("@/components/BottomNav"), { ssr: false });
 
 export default function Home() {
   return (
