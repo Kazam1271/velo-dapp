@@ -1,18 +1,20 @@
 'use client';
 import { HashConnect, HashConnectConnectionState, SessionData } from "hashconnect";
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
-import { AccountId } from "@hiero-ledger/sdk";
+import { AccountId, LedgerId } from "@hiero-ledger/sdk";
 import { toast } from "sonner";
 
 const appMetadata = {
     name: "Velo DEX",
     description: "Zero-Slippage OTC Trading Desk",
-    icon: "https://www.hashpack.app/img/logo.svg",
+    icons: ["https://www.hashpack.app/img/logo.svg"], // Must be icons (plural)
     url: "https://velo-swart.vercel.app"
 };
 
-// Initialize HashConnect
-const hashconnect = new HashConnect(appMetadata, "testnet", false);
+const projectId = "77347672d58ccce678cc86eee18c5918";
+
+// Initialize HashConnect v3 correctly
+const hashconnect = new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
 
 interface HashConnectContextType {
     hashconnect: HashConnect;
