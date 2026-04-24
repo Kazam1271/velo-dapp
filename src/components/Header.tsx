@@ -11,8 +11,9 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { state, pairingData, hederaAccountId, balance, connect, disconnect } = useHashConnect();
+  const { state, pairingData, balance, connect, disconnect } = useHashConnect();
   const isConnected = state === HashConnectConnectionState.Connected;
+  const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
   // ── Fetch live HBAR price ──────────────────────────────────
   useEffect(() => {
@@ -49,8 +50,8 @@ export default function Header() {
   }, []);
 
   const copyAddress = () => {
-    if (hederaAccountId) {
-      navigator.clipboard.writeText(hederaAccountId);
+    if (userAddress) {
+      navigator.clipboard.writeText(userAddress);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -80,13 +81,13 @@ export default function Header() {
           </div>
 
           <div className="relative" ref={dropdownRef}>
-            {isConnected && hederaAccountId ? (
+            {isConnected && userAddress ? (
               <button
                 onClick={() => setShowDropdown(!showDropdown)}
                 className="flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
               >
                 <Wallet size={16} className="shrink-0" />
-                <span>{truncateId(hederaAccountId)}</span>
+                <span>{truncateId(userAddress)}</span>
                 <ChevronDown size={14} className={`shrink-0 transition-transform ${showDropdown ? "rotate-180" : ""}`} />
               </button>
             ) : (
@@ -99,12 +100,12 @@ export default function Header() {
               </button>
             )}
 
-            {showDropdown && isConnected && hederaAccountId && (
+            {showDropdown && isConnected && userAddress && (
               <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2">
                 <div className="px-4 pt-4 pb-2">
                   <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Account</p>
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-mono text-velo-cyan">{hederaAccountId}</span>
+                    <span className="text-sm font-mono text-velo-cyan">{userAddress}</span>
                     <button onClick={copyAddress} className="text-gray-400 hover:text-white transition-colors p-1">
                       {copied ? <Check size={13} className="text-velo-green" /> : <Copy size={13} />}
                     </button>

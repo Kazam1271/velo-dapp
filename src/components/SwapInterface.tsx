@@ -72,8 +72,12 @@ const getTokenPriceUsd = (symbol: string, prices: any) => {
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { hashconnect, state, pairingData, hederaAccountId, balance, isRefreshingBalance } = useHashConnect();
+  const { hashconnect, state, pairingData, connect, balance, isRefreshingBalance } = useHashConnect();
+  
+  // Derive connection status and address as per mission requirements
   const isConnected = state === HashConnectConnectionState.Connected;
+  const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
+
   const [isSwapping, setIsSwapping] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
@@ -82,9 +86,9 @@ export default function SwapInterface() {
   const [isQuoting, setIsQuoting] = useState(false);
   const [payUsd, setPayUsd] = useState("0.00");
   const [receiveUsd, setReceiveUsd] = useState("0.00");
-
+ 
   const { prices } = usePriceFeed();
-  const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(hederaAccountId);
+  const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(userAddress);
   
   const [isClaiming, setIsClaiming] = useState(false);
   const [hasClaimed, setHasClaimed] = useState(false);
@@ -95,14 +99,14 @@ export default function SwapInterface() {
   }, [recvToken, liveBalances]);
 
   const handleClaimAirdrop = async () => {
-    if (!isConnected || isClaiming || hasClaimed || !hederaAccountId) return;
+    if (!isConnected || isClaiming || hasClaimed || !userAddress) return;
     setIsClaiming(true);
     const toastId = toast.loading("Claiming Early Adopter Bonus...");
     try {
       const response = await fetch("/api/claim", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: hederaAccountId }),
+        body: JSON.stringify({ accountId: userAddress }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Claim failed");
@@ -110,10 +114,10 @@ export default function SwapInterface() {
       if (data.associationRequired) {
         toast.loading("Association Required", { id: toastId, description: "Please associate VELO first." });
         const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId))
+          .setAccountId(AccountId.fromString(userAddress))
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
-        const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId) as any) as any;
+        const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
         (associateTx as any).freezeWithSigner(signer);
         (associateTx as any).executeWithSigner(signer);
         
@@ -173,20 +177,20 @@ export default function SwapInterface() {
   }, [payAmount, payToken, recvToken, prices]);
 
   const handleSwap = async () => {
-    if (!isConnected || !hederaAccountId || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
+    if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
     const toastId = toast.loading("Initializing Atomic Brokerage Swap...");
     const treasuryId = "0.0.8642596";
 
     try {
-      const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId) as any) as any;
+      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
 
       // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
         const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(hederaAccountId!))
+          .setAccountId(AccountId.fromString(userAddress!))
           .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
         (associateTx as any).freezeWithSigner(signer);
         (associateTx as any).executeWithSigner(signer);
@@ -199,26 +203,26 @@ export default function SwapInterface() {
 
       // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(hederaAccountId, new Hbar(-payAmountNum))
+        tx.addHbarTransfer(userAddress, new Hbar(-payAmountNum))
           .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
       } else {
         const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
-        tx.addTokenTransfer(payToken.tokenId, hederaAccountId, -payTiny)
+        tx.addTokenTransfer(payToken.tokenId, userAddress, -payTiny)
           .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
       }
 
       // Treasury -> User (Payout)
       if (recvToken.tokenId === "NATIVE") {
         tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
-          .addHbarTransfer(hederaAccountId, new Hbar(recvAmountNum));
+          .addHbarTransfer(userAddress, new Hbar(recvAmountNum));
       } else {
         const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
         tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
-          .addTokenTransfer(recvToken.tokenId, hederaAccountId, recvTiny);
+          .addTokenTransfer(recvToken.tokenId, userAddress, recvTiny);
       }
 
       // 3. User pays network fees
-      tx.setTransactionId(TransactionId.generate(hederaAccountId));
+      tx.setTransactionId(TransactionId.generate(userAddress));
       await (tx as any).freezeWithSigner(signer);
 
       // 4. Request User Signature

@@ -28,17 +28,17 @@ interface HashConnectContextType {
 const HashConnectContext = createContext<HashConnectContextType | null>(null);
 
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
-    const [hashconnect, setHashconnect] = useState<HashConnect | null>(null);
+    const [hashconnect] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
+        }
+        return null as any;
+    });
+
     const [state, setState] = useState(HashConnectConnectionState.Disconnected);
     const [pairingData, setPairingData] = useState<SessionData | null>(null);
     const [balance, setBalance] = useState("0.00");
     const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
-
-    // Initialize on client only
-    useEffect(() => {
-        const instance = new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
-        setHashconnect(instance);
-    }, []);
 
     // Derived states
     const hederaAccountId = pairingData?.accountIds?.[0] || null;
@@ -67,25 +67,29 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     }, [hederaAccountId]);
 
     useEffect(() => {
-        if (!hashconnect) return;
+        if (!hashconnect || typeof window === 'undefined') return;
 
         const init = async () => {
-            await hashconnect.init();
-            
-            hashconnect.connectionStatusChangeEvent.on((status) => {
-                setState(status);
-            });
+            try {
+                await hashconnect.init();
+                
+                hashconnect.connectionStatusChangeEvent.on((status) => {
+                    setState(status);
+                });
 
-            hashconnect.pairingEvent.on((data) => {
-                setPairingData(data);
-                toast.success("Wallet Connected!");
-            });
+                hashconnect.pairingEvent.on((data) => {
+                    setPairingData(data);
+                    toast.success("Wallet Connected!");
+                });
 
-            hashconnect.disconnectionEvent.on(() => {
-                setPairingData(null);
-                setState(HashConnectConnectionState.Disconnected);
-                toast.info("Wallet Disconnected");
-            });
+                hashconnect.disconnectionEvent.on(() => {
+                    setPairingData(null);
+                    setState(HashConnectConnectionState.Disconnected);
+                    toast.info("Wallet Disconnected");
+                });
+            } catch (error) {
+                console.error("[HashConnect] Init error:", error);
+            }
         };
 
         init();
@@ -121,7 +125,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
 
     return (
         <HashConnectContext.Provider value={{ 
-            hashconnect: hashconnect!, // Cast because we check in useHashConnect
+            hashconnect: hashconnect!,
             state, 
             pairingData, 
             address, 
@@ -140,14 +144,4 @@ export const useHashConnect = () => {
     const context = useContext(HashConnectContext);
     if (!context) throw new Error("useHashConnect must be used within HashConnectProvider");
     return context;
-};
-
-// Fallback useWeb3 to avoid breaking components during migration
-export const useWeb3 = () => {
-    const hc = useHashConnect();
-    return {
-        ...hc,
-        isConnected: hc.state === HashConnectConnectionState.Connected,
-        open: hc.connect,
-    };
 };
