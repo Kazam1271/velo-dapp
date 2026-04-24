@@ -7,6 +7,8 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735149": 0.02, // SAUCE (Mock)
   "0.0.8735151": 0.15, // PACK (Mock)
   "0.0.8735221": 1.00, // USDC (Mock)
+  "0.0.8734118": 1.00, // USDT (Mock)
+  "0.0.8725045": 1.00, // VELO (Mock)
 };
 
 export async function POST(req: Request) {
@@ -63,7 +65,7 @@ export async function POST(req: Request) {
       const tid = tokenId.toString();
       for (const [accountId, amount] of accountTransfers) {
         if (accountId.toString() === treasuryAccId.toString() && BigInt(amount.toString()) < 0n) {
-          const decimals = tid === "0.0.8735222" ? 8 : 6;
+          const decimals = (tid === "0.0.8735222" || tid === "0.0.8725045") ? 8 : 6;
           tokensReceivedByUser[tid] = (tokensReceivedByUser[tid] || 0) + (Math.abs(Number(amount.toString())) / Math.pow(10, decimals));
         }
       }

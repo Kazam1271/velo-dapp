@@ -24,7 +24,7 @@ import {
 // ─────────────────────────────────────────────────────────────────
 // Constants & ABI
 // ─────────────────────────────────────────────────────────────────
-const SAUCER_ROUTER_V2_NATIVE = "0.0.3945930";
+const SAUCER_ROUTER_V2_NATIVE = "0.0.1414040";
 const SAUCER_ROUTER_V2_EVM = "0x00000000000000000000000000000000003c37ea";
 const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
 
@@ -212,9 +212,11 @@ export default function SwapInterface() {
       }
 
       // 2. Build the FULL Atomic Transfer (User & Treasury sides)
-      const tx = new TransferTransaction();
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
+
+      const tx = new TransferTransaction()
+        .setTransactionId(TransactionId.generate(userAddress));
 
       // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
@@ -237,7 +239,6 @@ export default function SwapInterface() {
       }
 
       // 3. User pays network fees
-      tx.setTransactionId(TransactionId.generate(userAddress));
       await (tx as any).freezeWithSigner(signer);
 
       // 4. Request User Signature

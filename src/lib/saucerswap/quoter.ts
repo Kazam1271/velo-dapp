@@ -2,7 +2,7 @@ import { ethers } from "ethers";
 import { AccountId } from "@hiero-ledger/sdk";
 
 // SaucerSwap V2 QuoterV2 on Hedera Testnet
-const QUOTER_CONTRACT_ID = "0.0.3945935"; 
+const QUOTER_CONTRACT_ID = "0.0.1390002"; 
 const WHBAR_TOKEN_ID = "0.0.1505995"; 
 
 const QUOTER_V2_ABI = [
