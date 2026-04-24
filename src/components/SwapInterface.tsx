@@ -174,13 +174,13 @@ export default function SwapInterface() {
     if (!address || !hederaAccountId || !walletInterface || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
-    const toastId = toast.loading("Initializing Atomic Swap...");
+    const toastId = toast.loading("Initializing Atomic Brokerage Swap...");
     const treasuryId = "0.0.8642596";
 
     try {
       const signer = await walletInterface.getSigner();
 
-      // 1. Association Check (If receiving a token)
+      // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
         const associateTx = new TokenAssociateTransaction()
@@ -190,12 +190,14 @@ export default function SwapInterface() {
         await associateTx.executeWithSigner(signer);
       }
 
-      // 2. Build the Atomic Transfer
+      // 2. Build the FULL Atomic Transfer (User & Treasury sides)
+      // Note: We build it in the frontend for user signing, but the backend 
+      // will VERIFY the rates against the oracle before co-signing.
       const tx = new TransferTransaction();
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
 
-      // User -> Treasury (Pay)
+      // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
         tx.addHbarTransfer(address, new Hbar(-payAmountNum))
           .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
@@ -205,7 +207,7 @@ export default function SwapInterface() {
           .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
       }
 
-      // Treasury -> User (Receive)
+      // Treasury -> User (Payout)
       if (recvToken.tokenId === "NATIVE") {
         tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
           .addHbarTransfer(address, new Hbar(recvAmountNum));
@@ -220,25 +222,30 @@ export default function SwapInterface() {
       await tx.freezeWithSigner(signer);
 
       // 4. Request User Signature
-      toast.loading("Please sign the transfer in your wallet...", { id: toastId });
+      toast.loading("Please sign the atomic swap in your wallet...", { id: toastId });
       const signedTx = await signer.signTransaction(tx);
 
-      // 5. Submit to Backend for Treasury Co-Signature
-      toast.loading("Submitting to Treasury for co-signing...", { id: toastId });
+      // 5. Submit to Backend for Verification and Co-Signature
+      toast.loading("Verifying with Oracle and co-signing...", { id: toastId });
       const txBytes = Buffer.from(signedTx.toBytes()).toString("hex");
 
       const response = await fetch("/api/execute-swap", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transactionBytes: txBytes })
+        body: JSON.stringify({ 
+          transactionBytes: txBytes,
+          hbarAmount: payAmountNum,
+          tokenOutId: recvToken.tokenId,
+          expectedOut: recvAmountNum
+        })
       });
 
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Treasury swap failed");
+      if (!response.ok) throw new Error(result.error || "Brokerage execution failed");
 
-      toast.success("Atomic Swap Complete!", {
+      toast.success("Brokerage Swap Complete!", {
         id: toastId,
-        description: `Successfully swapped ${payAmount} ${payToken.symbol} for ${receiveAmount} ${recvToken.symbol}`,
+        description: `Successfully swapped via OTC Treasury. Rate: ${result.executedRate}`,
         action: {
           label: "View HashScan",
           onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result.txId}`, "_blank")
@@ -249,7 +256,7 @@ export default function SwapInterface() {
       refreshBalances();
 
     } catch (error: any) {
-      console.error("[Swap] Atomic Error:", error);
+      console.error("[Swap] Brokerage Error:", error);
       toast.error("Swap Failed", { id: toastId, description: error.message });
     } finally {
       setIsSwapping(false);
