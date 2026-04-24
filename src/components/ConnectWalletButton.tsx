@@ -20,17 +20,25 @@ export const ConnectWalletButton = () => {
   const handleWalletClick = (walletId?: string) => {
     if (!hashconnect) return;
     
+    const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const pairingString = (hashconnect as any).pairingString;
     
-    if (walletId === 'hashpack' && pairingString) {
-      window.location.href = `hashpack://pairing?string=${pairingString}`;
-    } else if (walletId === 'blade' && pairingString) {
-      window.location.href = `blade://pairing?string=${pairingString}`;
-    } else if (walletId === 'kabila' && pairingString) {
-      window.location.href = `kabila://pairing?string=${pairingString}`;
+    if (isMobile && pairingString && walletId) {
+      if (walletId === 'hashpack') {
+        window.location.href = `hashpack://pairing?string=${pairingString}`;
+      } else if (walletId === 'blade') {
+        window.location.href = `blade://pairing?string=${pairingString}`;
+      } else if (walletId === 'kabila') {
+        window.location.href = `kabila://pairing?string=${pairingString}`;
+      }
     } else {
-      // Fallback to universal modal
-      hashconnect.openPairingModal();
+      // For Desktop or generic mobile, use the universal modal
+      // This is the most reliable way to trigger extensions on desktop
+      try {
+        hashconnect.openPairingModal();
+      } catch (err) {
+        console.error("Failed to open pairing modal", err);
+      }
     }
     
     setIsModalOpen(false);
@@ -88,10 +96,15 @@ export const ConnectWalletButton = () => {
                 className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 shadow-inner">
-                    <img src="https://cdn.hashpack.app/branding/hashpack-logo.png" alt="HashPack" className="w-full h-full object-contain" />
+                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 shadow-inner overflow-hidden">
+                    <img 
+                      src="https://www.hashpack.app/img/logo.svg" 
+                      alt="HashPack" 
+                      className="w-full h-full object-contain"
+                      onError={(e) => { e.currentTarget.src = "https://cdn.hashpack.app/branding/hashpack-logo.png"; }}
+                    />
                   </div>
-                  <div className="flex flex-col items-start">
+                  <div className="flex flex-col items-start text-left">
                     <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">HashPack</span>
                     <span className="text-[10px] text-slate-500 font-medium">Extension or Mobile</span>
                   </div>
@@ -105,8 +118,13 @@ export const ConnectWalletButton = () => {
                 className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
               >
                 <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-2 border border-white/10 shadow-inner">
-                    <img src="https://www.bladewallet.io/wp-content/uploads/2022/04/Blade-Logo-White.png" alt="Blade" className="w-full h-full object-contain" />
+                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-2 border border-white/10 shadow-inner overflow-hidden">
+                    <img 
+                      src="https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/blade.png" 
+                      alt="Blade" 
+                      className="w-full h-full object-contain"
+                      onError={(e) => { e.currentTarget.src = "https://www.bladewallet.io/wp-content/uploads/2022/04/Blade-Logo-White.png"; }}
+                    />
                   </div>
                   <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">Blade Wallet</span>
                 </div>
@@ -119,7 +137,12 @@ export const ConnectWalletButton = () => {
               >
                 <div className="flex items-center gap-4">
                   <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 overflow-hidden shadow-inner">
-                    <img src="https://app.kabila.app/favicon.ico" alt="Kabila" className="w-full h-full object-contain" />
+                    <img 
+                      src="https://app.kabila.app/favicon.ico" 
+                      alt="Kabila" 
+                      className="w-full h-full object-contain"
+                      onError={(e) => { e.currentTarget.src = "https://pbs.twimg.com/profile_images/1587395015842856960/T-8J6HkO_400x400.jpg"; }}
+                    />
                   </div>
                   <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">Kabila Wallet</span>
                 </div>
@@ -146,7 +169,7 @@ export const ConnectWalletButton = () => {
             </div>
 
             {/* Help / Footer */}
-            <div className="mt-8 text-center">
+            <div className="mt-8 text-center border-t border-[#272A2A] pt-4">
               <button className="text-[11px] text-slate-500 hover:text-white transition-colors uppercase tracking-[0.2em] font-black">
                 What is a wallet?
               </button>
