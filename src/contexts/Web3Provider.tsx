@@ -170,12 +170,23 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
 
       getSigner: async () => {
         // Path A: WalletConnect / AppKit Provider (via hook)
-        const sessionTopic = (walletProvider as any)?.session?.topic;
+        let provider = walletProvider;
+        let sessionTopic = (provider as any)?.session?.topic;
 
-        if (walletProvider && sessionTopic) {
+        // Try getting provider from connector if hook is empty
+        if (!provider && connector) {
+          try {
+            provider = await (connector as any).getProvider();
+            sessionTopic = (provider as any)?.session?.topic;
+          } catch (e) {
+            console.warn("[Web3Provider] Failed to get provider from connector:", e);
+          }
+        }
+
+        if (provider && sessionTopic) {
           return new DAppSigner(
             AccountId.fromString(hederaAccountId),
-            walletProvider as any,
+            provider as any,
             sessionTopic
           );
         }
@@ -187,9 +198,12 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
         }
 
         // The Guardrail:
-        const msg = "Signer state lost or session timeout. Please DISCONNECT and reconnect using the 'WalletConnect' option to restore the bridge.";
+        const msg = "Signer state lost. This can happen after a page refresh or if the wallet session timed out.\n\n" +
+                    "Action Required:\n" +
+                    "1. If using a Browser Extension (HashPack/Blade), ensure it is unlocked.\n" +
+                    "2. If using WalletConnect, please DISCONNECT and reconnect to restore the bridge.";
         alert(msg);
-        throw new Error(msg);
+        throw new Error("No signer available. Re-connection required.");
       },
 
       executeSwap: async (type: "hedera" | "metamask", txData: any) => {
