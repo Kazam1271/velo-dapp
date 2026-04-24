@@ -113,7 +113,7 @@ export default function SwapInterface() {
           .setAccountId(AccountId.fromString(hederaAccountId))
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
-        const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId)) as any;
+        const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId) as any) as any;
         (associateTx as any).freezeWithSigner(signer);
         (associateTx as any).executeWithSigner(signer);
         
@@ -180,7 +180,7 @@ export default function SwapInterface() {
     const treasuryId = "0.0.8642596";
 
     try {
-      const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId)) as any;
+      const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId) as any) as any;
 
       // 1. Association Check
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
