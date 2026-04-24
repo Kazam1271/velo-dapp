@@ -78,6 +78,7 @@ interface Web3ContextType {
   balance: string;
   isRefreshingBalance: boolean;
   open: () => void;
+  connectExtension: () => Promise<void>;
   disconnect: () => void;
   connector: any;
   walletInterface: {
@@ -96,12 +97,22 @@ const Web3Context = createContext<Web3ContextType | undefined>(undefined);
 // ─────────────────────────────────────────────────────────────────
 function Web3InnerProvider({ children }: { children: React.ReactNode }) {
   const { open } = useAppKit();
-  const { address, isConnected, connector } = useAccount();
-  const { hederaAccountId } = useHederaAccount(address || null);
+  const { address: wagmiAddress, isConnected: wagmiIsConnected, connector } = useAccount();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
+
+  // Native Connection State (for HashPack / Blade Direct)
+  const [isNative, setIsNative] = useState(false);
+  const [nativeAccountId, setNativeAccountId] = useState<string | null>(null);
+  const [nativeAddress, setNativeAddress] = useState<string | null>(null);
+
+  const { hederaAccountId: wagmiHederaId } = useHederaAccount(wagmiAddress || null);
+  
+  const isConnected = wagmiIsConnected || isNative;
+  const address = wagmiAddress || nativeAddress;
+  const hederaAccountId = wagmiHederaId || nativeAccountId;
+
   const [nativeBalance, setNativeBalance] = useState("0.00");
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
-
-  const { disconnect: wagmiDisconnect } = useDisconnect();
 
   const fetchBalance = useCallback(async () => {
     if (!hederaAccountId) {
@@ -131,22 +142,49 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, [fetchBalance]);
 
+  const connectExtension = useCallback(async () => {
+    if (typeof window === "undefined") return;
+    const native = (window as any).hashgraph || (window as any).hedera;
+    
+    if (!native) {
+      toast.error("No Hedera Extension Found", { 
+        description: "Please install HashPack or Blade wallet extension." 
+      });
+      return;
+    }
+
+    try {
+      const response = await native.connect();
+      if (response && response.accountIds && response.accountIds.length > 0) {
+        const accId = response.accountIds[0];
+        setNativeAccountId(accId);
+        // Direct extensions often don't provide the EVM address immediately, 
+        // but we can infer it or just use the account ID as the key.
+        setNativeAddress(accId); 
+        setIsNative(true);
+        toast.success("Connected via Extension!");
+      }
+    } catch (error: any) {
+      console.error("[Web3Provider] Native Connection Failed:", error);
+      toast.error("Connection Failed", { description: error.message });
+    }
+  }, []);
+
   const fullDisconnect = useCallback(() => {
     localStorage.setItem(VELO_MANUAL_DISCONNECT_KEY, "true");
+    setIsNative(false);
+    setNativeAccountId(null);
+    setNativeAddress(null);
     wagmiDisconnect();
   }, [wagmiDisconnect]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     
-    if (isConnected) {
-      // If we are now connected, clear the manual disconnect flag
+    if (wagmiIsConnected) {
       localStorage.setItem(VELO_MANUAL_DISCONNECT_KEY, "false");
-    } else {
-      // If we are disconnected, and the flag is NOT set, we might want to auto-connect 
-      // but AppKit usually handles that.
     }
-  }, [isConnected]);
+  }, [wagmiIsConnected]);
 
   // Wallet Detection
   const walletType = useMemo(() => {
@@ -207,6 +245,27 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       },
 
       executeSwap: async (type: "hedera" | "metamask", txData: any) => {
+        // Path A: Native Extension
+        if (isNative) {
+          const native = (window as any).hashgraph || (window as any).hedera;
+          if (!native) throw new Error("Native extension not found");
+          
+          console.log("[RPC] Executing via Native Extension (hedera_signAndExecuteTransaction)...");
+          const result = await native.request({
+            method: "hedera_signAndExecuteTransaction",
+            params: {
+              signerAccountId: hederaAccountId,
+              transactionList: txData
+            }
+          });
+          return {
+            hash: result.transactionHash || (typeof result === 'string' ? result : result.transactionId),
+            transactionId: result.transactionId || result,
+            status: "SUCCESS"
+          };
+        }
+
+        // Path B: Wagmi/AppKit Provider
         const provider = await (connector as any).getProvider();
         if (!provider) throw new Error("No provider available");
 
@@ -222,7 +281,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
           console.log("[RPC] Executing via MetaMask (eth_sendTransaction)...");
           const hash = await provider.request({
             method: "eth_sendTransaction",
-            params: [txData] // txData is { from, to, data, value }
+            params: [txData] 
           });
           return { hash, transactionId: hash, status: "SUCCESS" };
         } else {
@@ -231,7 +290,7 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
             method: "hedera_signAndExecuteTransaction",
             params: {
               signerAccountId: hederaAccountId,
-              transactionList: txData // base64
+              transactionList: txData 
             }
           });
           return {
@@ -251,10 +310,11 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
     balance: nativeBalance,
     isRefreshingBalance,
     open,
+    connectExtension,
     disconnect: fullDisconnect,
     connector,
     walletInterface
-  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, fullDisconnect, connector, walletInterface]);
+  }), [isConnected, address, hederaAccountId, nativeBalance, isRefreshingBalance, open, connectExtension, fullDisconnect, connector, walletInterface]);
 
   return (
     <Web3Context.Provider value={value}>

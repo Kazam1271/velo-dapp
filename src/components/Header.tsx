@@ -12,7 +12,7 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { address, isConnected, balance, open, disconnect } = useWeb3();
+  const { address, isConnected, balance, open, connectExtension, disconnect } = useWeb3();
 
   // Diagnostic Log
   useEffect(() => {
@@ -143,28 +143,40 @@ export default function Header() {
           </div>
 
           {/* ─── Account Area ─── */}
-          <div className="relative" ref={dropdownRef}>
-            <button
-              id="connect-wallet-btn"
-              onClick={handleButtonClick}
-              className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[220px]
-                ${
-                  isConnected
-                    ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
-                    : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
-                }`}
-            >
-              <Wallet size={16} className="shrink-0" />
-              <span className="truncate">{buttonLabel()}</span>
-              {isConnected && (
-                <ChevronDown
-                  size={14}
-                  className={`shrink-0 transition-transform ${
-                    showDropdown ? "rotate-180" : ""
+          <div className="flex items-center gap-2">
+            {!isConnected && typeof window !== "undefined" && ((window as any).hashgraph || (window as any).hedera) && (
+              <button
+                onClick={connectExtension}
+                className="hidden sm:flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all bg-[#1a2130] border border-velo-border text-gray-300 hover:text-white hover:border-velo-cyan/60 group"
+                title="Connect directly using HashPack or Blade extension"
+              >
+                <Zap size={14} className="text-velo-cyan group-hover:animate-pulse" />
+                Extension
+              </button>
+            )}
+
+            <div className="relative" ref={dropdownRef}>
+              <button
+                id="connect-wallet-btn"
+                onClick={handleButtonClick}
+                className={`flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all max-w-[220px]
+                  ${
+                    isConnected
+                      ? "bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
+                      : "bg-velo-cyan hover:bg-cyan-400 text-velo-bg"
                   }`}
-                />
-              )}
-            </button>
+              >
+                <Wallet size={16} className="shrink-0" />
+                <span className="truncate">{buttonLabel()}</span>
+                {isConnected && (
+                  <ChevronDown
+                    size={14}
+                    className={`shrink-0 transition-transform ${
+                      showDropdown ? "rotate-180" : ""
+                    }`}
+                  />
+                )}
+              </button>
 
             {/* Hollow account info badge */}
             {isHollowAccount && (
