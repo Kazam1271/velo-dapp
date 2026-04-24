@@ -73,11 +73,11 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             try {
                 await hashconnect.init();
                 
-                hashconnect.connectionStatusChangeEvent.on((status) => {
+                hashconnect.connectionStatusChangeEvent.on((status: HashConnectConnectionState) => {
                     setState(status);
                 });
 
-                hashconnect.pairingEvent.on((data) => {
+                hashconnect.pairingEvent.on((data: SessionData) => {
                     setPairingData(data);
                     toast.success("Wallet Connected!");
                 });
