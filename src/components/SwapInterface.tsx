@@ -114,8 +114,8 @@ export default function SwapInterface() {
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
         const signer = hashconnect.getSigner(AccountId.fromString(hederaAccountId)) as any;
-        await associateTx.freezeWithSigner(signer);
-        await associateTx.executeWithSigner(signer);
+        (associateTx as any).freezeWithSigner(signer);
+        (associateTx as any).executeWithSigner(signer);
         
         setIsClaiming(false);
         handleClaimAirdrop();
@@ -188,8 +188,8 @@ export default function SwapInterface() {
         const associateTx = new TokenAssociateTransaction()
           .setAccountId(AccountId.fromString(hederaAccountId!))
           .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        await associateTx.freezeWithSigner(signer);
-        await associateTx.executeWithSigner(signer);
+        (associateTx as any).freezeWithSigner(signer);
+        (associateTx as any).executeWithSigner(signer);
       }
 
       // 2. Build the FULL Atomic Transfer (User & Treasury sides)
@@ -219,11 +219,11 @@ export default function SwapInterface() {
 
       // 3. User pays network fees
       tx.setTransactionId(TransactionId.generate(hederaAccountId));
-      await tx.freezeWithSigner(signer);
+      await (tx as any).freezeWithSigner(signer);
 
       // 4. Request User Signature
       toast.loading("Please sign the atomic swap in HashPack...", { id: toastId });
-      const signedTx = await signer.signTransaction(tx);
+      const signedTx = await (signer as any).signTransaction(tx as any);
 
       // 5. Submit to Backend for Verification and Co-Signature
       toast.loading("Verifying with Oracle and co-signing...", { id: toastId });
