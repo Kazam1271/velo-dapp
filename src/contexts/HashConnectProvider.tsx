@@ -22,6 +22,7 @@ interface HashConnectContextType {
     balance: string;
     isRefreshingBalance: boolean;
     connect: () => void;
+    openModal: () => void;
     disconnect: () => void;
 }
 
@@ -110,10 +111,20 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const connect = () => {
         if (!hashconnect) return;
         try {
-            // This is the magic command for the browser extension
+            // Magic command for direct browser extension connection
             (hashconnect as any).connectToLocalWallet();
         } catch (error: any) {
-            toast.error("Connection Failed", { description: error.message });
+            toast.error("Extension Connection Failed", { description: error.message });
+        }
+    };
+
+    const openModal = () => {
+        if (!hashconnect) return;
+        try {
+            // Triggers the universal WalletConnect QR modal
+            hashconnect.openPairingModal();
+        } catch (error: any) {
+            toast.error("Modal Failed", { description: error.message });
         }
     };
 
@@ -132,7 +143,8 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             hederaAccountId, 
             balance, 
             isRefreshingBalance,
-            connect, 
+            connect,
+            openModal,
             disconnect 
         }}>
             {children}
