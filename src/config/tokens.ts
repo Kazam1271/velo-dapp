@@ -30,7 +30,7 @@ export const TOKEN_LIST: Token[] = [
     name: "USD Coin",
     iconUrl: "https://cryptologos.cc/logos/usd-coin-usdc-logo.png",
     decimals: 6,
-    tokenId: "0.0.8735221", // Updated to minted mock USDC
+    tokenId: "0.0.5449", // Official USDC Testnet ID
     mainnetId: "0.0.456858",
     badge: "verified",
     iconBg: "#2775ca",
