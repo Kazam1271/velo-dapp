@@ -429,7 +429,7 @@ function TokenDropdown({ label, selected, tokens, onSelect, disabledSymbol }: { 
       <button onClick={() => setIsOpen(!isOpen)} className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] transition-all rounded-2xl px-3 py-2 border border-velo-border group min-w-[110px] justify-between">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
-            <img src={selected.iconUrl} alt={selected.symbol} className="w-full h-full object-contain" />
+            <img src={selected.logoURI} alt={selected.symbol} className="w-full h-full object-contain" />
           </div>
           <span className="text-white font-bold text-sm tracking-wide">{selected.symbol}</span>
         </div>
@@ -447,7 +447,7 @@ function TokenDropdown({ label, selected, tokens, onSelect, disabledSymbol }: { 
             >
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-full overflow-hidden bg-white/10 p-1 flex items-center justify-center">
-                  <img src={t.iconUrl} alt={t.symbol} className="w-full h-full object-contain" />
+                  <img src={t.logoURI} alt={t.symbol} className="w-full h-full object-contain" />
                 </div>
                 <div>
                   <div className="text-sm font-bold text-white flex items-center gap-1.5">
