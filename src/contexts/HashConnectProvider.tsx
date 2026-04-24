@@ -85,9 +85,9 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         init();
         
         return () => {
-            hashconnect.connectionStatusChangeEvent.off();
-            hashconnect.pairingEvent.off();
-            hashconnect.disconnectionEvent.off();
+            (hashconnect.connectionStatusChangeEvent as any).off();
+            (hashconnect.pairingEvent as any).off();
+            (hashconnect.disconnectionEvent as any).off();
         };
     }, []);
 
