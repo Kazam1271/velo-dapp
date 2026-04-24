@@ -57,7 +57,8 @@ export async function getSaucerSwapQuote(
       body: JSON.stringify({
         to: quoterAddress,
         data: encodedData,
-        estimate: false
+        estimate: false,
+        gas: 1000000 // Add explicit gas limit for mirror node calls
       })
     });
 

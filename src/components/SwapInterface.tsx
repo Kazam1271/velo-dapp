@@ -215,30 +215,30 @@ export default function SwapInterface() {
       const payAmountNum = parseFloat(payAmount);
       const recvAmountNum = parseFloat(receiveAmount);
 
-      const tx = new TransferTransaction()
-        .setNodeAccountIds([new AccountId(3)]);
-
+      const tx = new TransferTransaction();
+      
       // User -> Treasury (Payment)
       if (payToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(userAddress, new Hbar(-payAmountNum))
-          .addHbarTransfer(treasuryId, new Hbar(payAmountNum));
+        tx.addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-payAmountNum))
+          .addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(payAmountNum));
       } else {
         const payTiny = Math.floor(payAmountNum * Math.pow(10, payToken.decimals));
-        tx.addTokenTransfer(payToken.tokenId, userAddress, -payTiny)
-          .addTokenTransfer(payToken.tokenId, treasuryId, payTiny);
+        tx.addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(userAddress), -payTiny)
+          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(treasuryId), payTiny);
       }
 
       // Treasury -> User (Payout)
       if (recvToken.tokenId === "NATIVE") {
-        tx.addHbarTransfer(treasuryId, new Hbar(-recvAmountNum))
-          .addHbarTransfer(userAddress, new Hbar(recvAmountNum));
+        tx.addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(-recvAmountNum))
+          .addHbarTransfer(AccountId.fromString(userAddress), new Hbar(recvAmountNum));
       } else {
         const recvTiny = Math.floor(recvAmountNum * Math.pow(10, recvToken.decimals));
-        tx.addTokenTransfer(recvToken.tokenId, treasuryId, -recvTiny)
-          .addTokenTransfer(recvToken.tokenId, userAddress, recvTiny);
+        tx.addTokenTransfer(TokenId.fromString(recvToken.tokenId), AccountId.fromString(treasuryId), -recvTiny)
+          .addTokenTransfer(TokenId.fromString(recvToken.tokenId), AccountId.fromString(userAddress), recvTiny);
       }
 
       // 3. User pays network fees
+      tx.setNodeAccountIds([AccountId.fromString("0.0.3")]);
       await (tx as any).freezeWithSigner(signer);
 
       // 4. Request User Signature
