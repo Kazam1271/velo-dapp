@@ -18,7 +18,8 @@ import {
   TransactionId, 
   AccountId, 
   TokenId,
-  TokenAssociateTransaction 
+  TokenAssociateTransaction,
+  Transaction 
 } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
