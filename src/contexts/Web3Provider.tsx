@@ -167,15 +167,28 @@ function Web3InnerProvider({ children }: { children: React.ReactNode }) {
       address,
 
       getSigner: async () => {
-        const provider = await (modal as any).getProvider();
-        if (provider?.session && provider?.client) {
-          return new DAppSigner(AccountId.fromString(hederaAccountId), provider.client, provider.session.topic, LedgerId.TESTNET);
+        // Path A: WalletConnect / AppKit Universal Provider
+        const universalProvider = (modal as any).getUniversalProvider();
+        const sessionTopic = universalProvider?.session?.topic;
+
+        if (universalProvider && sessionTopic) {
+          return new DAppSigner(
+            AccountId.fromString(hederaAccountId),
+            universalProvider,
+            sessionTopic
+          );
         }
+
+        // Path B: Fallback to Native Extensions (HashPack / Blade)
         if (typeof window !== "undefined") {
           const native = (window as any).hashgraph || (window as any).hedera;
           if (native) return native;
         }
-        throw new Error("No signer available.");
+
+        // The Guardrail:
+        const msg = "Signer state lost. This often happens after a refresh or session timeout. Please DISCONNECT and reconnect using the 'WalletConnect' option to restore the bridge.";
+        alert(msg);
+        throw new Error(msg);
       },
 
       executeSwap: async (type: "hedera" | "metamask", txData: any) => {
