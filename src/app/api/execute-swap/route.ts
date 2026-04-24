@@ -53,8 +53,8 @@ export async function POST(req: Request) {
 
     // Calculate how much HBAR the Treasury is receiving
     for (const [id, amount] of hbarTransfers) {
-      if (id.toString() === treasuryAccId.toString() && amount.toTinybars() > 0n) {
-        hbarPaidByUser += Number(amount.toTinybars()) / 1e8;
+      if (id.toString() === treasuryAccId.toString() && BigInt(amount.toTinybars().toString()) > 0n) {
+        hbarPaidByUser += Number(amount.toTinybars().toString()) / 1e8;
       }
     }
 
@@ -62,9 +62,9 @@ export async function POST(req: Request) {
     for (const [tokenId, accountTransfers] of tokenTransfers) {
       const tid = tokenId.toString();
       for (const [accountId, amount] of accountTransfers) {
-        if (accountId.toString() === treasuryAccId.toString() && amount < 0n) {
-          const decimals = tid === "0.0.8735222" ? 8 : 6; // WHBAR=8, others=6 per new config
-          tokensReceivedByUser[tid] = (tokensReceivedByUser[tid] || 0) + (Math.abs(Number(amount)) / Math.pow(10, decimals));
+        if (accountId.toString() === treasuryAccId.toString() && BigInt(amount.toString()) < 0n) {
+          const decimals = tid === "0.0.8735222" ? 8 : 6;
+          tokensReceivedByUser[tid] = (tokensReceivedByUser[tid] || 0) + (Math.abs(Number(amount.toString())) / Math.pow(10, decimals));
         }
       }
     }
