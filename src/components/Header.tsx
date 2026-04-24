@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap, Wallet, Info, LogOut, ChevronDown, Copy, Check } from "lucide-react";
+import { Zap, Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { HashConnectConnectionState } from "hashconnect";
@@ -11,7 +11,7 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { state, pairingData, balance, connect, openModal, disconnect } = useHashConnect();
+  const { state, pairingData, balance, connect, disconnect } = useHashConnect();
   const isConnected = state === HashConnectConnectionState.Connected;
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
@@ -91,41 +91,13 @@ export default function Header() {
                 <ChevronDown size={14} className={`shrink-0 transition-transform ${showDropdown ? "rotate-180" : ""}`} />
               </button>
             ) : (
-              <div className="relative">
-                <button
-                  onClick={() => setShowDropdown(!showDropdown)}
-                  className="flex items-center gap-2 font-bold px-4 py-2 rounded-full transition-all bg-velo-cyan hover:bg-cyan-400 text-velo-bg shadow-lg shadow-cyan-500/20"
-                >
-                  <Zap size={16} fill="currentColor" />
-                  Connect Wallet
-                  <ChevronDown size={14} className={`shrink-0 transition-transform ${showDropdown ? "rotate-180" : ""}`} />
-                </button>
-
-                {showDropdown && !isConnected && (
-                  <div className="absolute top-full right-0 mt-2 w-64 bg-[#0c1019] border border-velo-border rounded-xl shadow-2xl z-50 overflow-hidden animate-in slide-in-from-top-2">
-                    <button
-                      onClick={() => {
-                        setShowDropdown(false);
-                        connect(); // Extension
-                      }}
-                      className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/5 transition-colors border-b border-velo-border"
-                    >
-                      <span className="text-sm font-bold text-white">Browser Extension</span>
-                      <span className="text-[10px] text-gray-500">HashPack, Blade, or Kabila</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowDropdown(false);
-                        openModal(); 
-                      }}
-                      className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/5 transition-colors"
-                    >
-                      <span className="text-sm font-bold text-white">Mobile Wallet</span>
-                      <span className="text-[10px] text-gray-500">Scan QR Code via WalletConnect</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+              <button
+                onClick={connect}
+                className="flex items-center gap-2 font-bold px-4 py-2 rounded-full transition-all bg-velo-cyan hover:bg-cyan-400 text-velo-bg shadow-lg shadow-cyan-500/20"
+              >
+                <Zap size={16} fill="currentColor" />
+                Connect Wallet
+              </button>
             )}
 
             {showDropdown && isConnected && userAddress && (

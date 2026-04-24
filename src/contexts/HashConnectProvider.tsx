@@ -22,7 +22,6 @@ interface HashConnectContextType {
     balance: string;
     isRefreshingBalance: boolean;
     connect: () => void;
-    openModal: () => void;
     disconnect: () => void;
 }
 
@@ -111,20 +110,10 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const connect = () => {
         if (!hashconnect) return;
         try {
-            // Magic command for direct browser extension connection
-            (hashconnect as any).connectToLocalWallet();
-        } catch (error: any) {
-            toast.error("Extension Connection Failed", { description: error.message });
-        }
-    };
-
-    const openModal = () => {
-        if (!hashconnect) return;
-        try {
-            // Triggers the universal WalletConnect QR modal
+            // Correct v3 API: triggers the universal pairing modal
             hashconnect.openPairingModal();
         } catch (error: any) {
-            toast.error("Modal Failed", { description: error.message });
+            toast.error("Connection Failed", { description: error.message });
         }
     };
 
@@ -144,7 +133,6 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             balance, 
             isRefreshingBalance,
             connect,
-            openModal,
             disconnect 
         }}>
             {children}
