@@ -30,7 +30,8 @@ const HashConnectContext = createContext<HashConnectContextType | null>(null);
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
         if (typeof window !== 'undefined') {
-            return new HashConnect(LedgerId.TESTNET, projectId, appMetadata, false);
+            console.log("[HashConnect] Creating instance with Ledger: testnet, ProjectID:", projectId);
+            return new HashConnect("testnet", projectId, appMetadata, false);
         }
         return null as any;
     });
@@ -70,19 +71,24 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         if (!hashconnect || typeof window === 'undefined') return;
 
         const init = async () => {
+            console.log("[HashConnect] Initializing with Project ID:", projectId);
             try {
                 await hashconnect.init();
+                console.log("[HashConnect] Initialization complete");
                 
                 hashconnect.connectionStatusChangeEvent.on((status: HashConnectConnectionState) => {
+                    console.log("[HashConnect] Connection status changed:", status);
                     setState(status);
                 });
 
                 hashconnect.pairingEvent.on((data: SessionData) => {
+                    console.log("[HashConnect] Pairing event received:", data);
                     setPairingData(data);
                     toast.success("Wallet Connected!");
                 });
 
                 hashconnect.disconnectionEvent.on(() => {
+                    console.log("[HashConnect] Disconnection event");
                     setPairingData(null);
                     setState(HashConnectConnectionState.Disconnected);
                     toast.info("Wallet Disconnected");
