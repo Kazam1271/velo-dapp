@@ -129,8 +129,8 @@ export default function SwapInterface() {
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
         const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
-        (associateTx as any).freezeWithSigner(signer);
-        (associateTx as any).executeWithSigner(signer);
+        await (associateTx as any).freezeWithSigner(signer);
+        await (associateTx as any).executeWithSigner(signer);
         
         setIsClaiming(false);
         handleClaimAirdrop();
@@ -201,10 +201,14 @@ export default function SwapInterface() {
       if (!isAssociated && recvToken.tokenId !== "NATIVE") {
         toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
         const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(userAddress!))
+          .setAccountId(AccountId.fromString(userAddress))
           .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        (associateTx as any).freezeWithSigner(signer);
-        (associateTx as any).executeWithSigner(signer);
+        
+        await (associateTx as any).freezeWithSigner(signer);
+        await (associateTx as any).executeWithSigner(signer);
+        
+        toast.success(`${recvToken.symbol} Associated!`, { id: toastId });
+        refreshBalances();
       }
 
       // 2. Build the FULL Atomic Transfer (User & Treasury sides)

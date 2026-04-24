@@ -96,6 +96,19 @@ export const ConnectWalletButton = () => {
                     <span className="text-white font-semibold text-md group-hover:text-cyan-400 transition-colors">Blade Wallet</span>
                   </div>
                 </button>
+
+                {/* Kabila Wallet */}
+                <button 
+                  onClick={handleConnect} 
+                  className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-3 rounded-2xl transition-all group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-black flex items-center justify-center p-1 border border-white/5 overflow-hidden">
+                      <img src="https://app.kabila.app/favicon.ico" alt="Kabila" className="w-full h-full object-contain" />
+                    </div>
+                    <span className="text-white font-semibold text-md group-hover:text-cyan-400 transition-colors">Kabila Wallet</span>
+                  </div>
+                </button>
                 
                 {/* Mobile / Other */}
                 <button 
