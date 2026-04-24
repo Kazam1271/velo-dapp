@@ -4,6 +4,7 @@ import { Zap, Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { HashConnectConnectionState } from "hashconnect";
+import { ConnectWalletButton } from "./ConnectWalletButton";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
@@ -11,7 +12,7 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { state, pairingData, balance, connect, disconnect } = useHashConnect();
+  const { state, pairingData, balance, disconnect } = useHashConnect();
   const isConnected = state === HashConnectConnectionState.Connected;
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
@@ -91,13 +92,7 @@ export default function Header() {
                 <ChevronDown size={14} className={`shrink-0 transition-transform ${showDropdown ? "rotate-180" : ""}`} />
               </button>
             ) : (
-              <button
-                onClick={connect}
-                className="flex items-center gap-2 font-bold px-4 py-2 rounded-full transition-all bg-velo-cyan hover:bg-cyan-400 text-velo-bg shadow-lg shadow-cyan-500/20"
-              >
-                <Zap size={16} fill="currentColor" />
-                Connect Wallet
-              </button>
+              <ConnectWalletButton />
             )}
 
             {showDropdown && isConnected && userAddress && (

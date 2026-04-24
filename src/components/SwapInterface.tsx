@@ -78,6 +78,18 @@ export default function SwapInterface() {
   const isConnected = state === HashConnectConnectionState.Connected;
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
+  // ── Task 1: Phantom Balance Fix ──────────────────────────
+  useEffect(() => {
+    if (!isConnected || !userAddress) {
+      setPayAmount("");
+      setReceiveAmount("");
+      setPayUsd("0.00");
+      setReceiveUsd("0.00");
+      // Note: HBAR balance and Token balances are cleared via HashConnectProvider 
+      // and useTokenBalances hook when userAddress becomes null.
+    }
+  }, [isConnected, userAddress]);
+
   const [isSwapping, setIsSwapping] = useState(false);
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
