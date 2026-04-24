@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { HashConnectProvider } from "@/contexts/HashConnectProvider";
+import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -19,10 +19,10 @@ export default function RootLayout({
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col font-sans">
-        <HashConnectProvider>
+        <ClientWalletProvider>
           {children}
           <Toaster position="bottom-right" theme="dark" />
-        </HashConnectProvider>
+        </ClientWalletProvider>
       </body>
     </html>
   );
