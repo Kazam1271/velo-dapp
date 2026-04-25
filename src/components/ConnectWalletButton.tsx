@@ -6,6 +6,37 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
+const customWallets = [
+  {
+    id: 'hashpack',
+    name: 'HashPack',
+    homepage: 'https://www.hashpack.app/',
+    image_url: 'https://cdn.hashpack.app/branding/hashpack-logo.png',
+    mobile_link: 'https://wallet.hashpack.app',
+    desktop_link: 'https://wallet.hashpack.app',
+    webapp_link: 'https://wallet.hashpack.app',
+    recommended: true
+  },
+  {
+    id: 'blade',
+    name: 'Blade Wallet',
+    homepage: 'https://bladewallet.io/',
+    image_url: 'https://www.bladewallet.io/wp-content/uploads/2022/04/Blade-Logo-White.png', 
+    mobile_link: 'https://bladewallet.io',
+    desktop_link: 'https://bladewallet.io',
+    webapp_link: 'https://bladewallet.io'
+  },
+  {
+    id: 'kabila',
+    name: 'Kabila Wallet',
+    homepage: 'https://kabila.app/',
+    image_url: 'https://app.kabila.app/favicon.ico', 
+    mobile_link: 'https://app.kabila.app',
+    desktop_link: 'https://app.kabila.app',
+    webapp_link: 'https://app.kabila.app'
+  }
+];
+
 export const ConnectWalletButton = () => {
   const { state, pairingData, isConnected, hashconnect, disconnect } = useHashConnect();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,8 +51,7 @@ export const ConnectWalletButton = () => {
   const handleWalletClick = (walletId?: string) => {
     if (!hashconnect) return;
     
-    // ── Task: In-App Browser Support ──────────────────────────
-    // If we're inside HashPack's in-app browser, use direct connection
+    // Check for in-app browser
     if (typeof window !== 'undefined' && (window as any).hashpack) {
       (hashconnect as any).connectToLocalWallet();
       setIsModalOpen(false);
@@ -40,7 +70,7 @@ export const ConnectWalletButton = () => {
         window.location.href = `kabila://pairing?string=${pairingString}`;
       }
     } else {
-      // For Desktop or generic mobile, use the universal modal
+      // For Desktop or fallback, open the universal modal
       try {
         hashconnect.openPairingModal();
       } catch (err) {
@@ -81,10 +111,8 @@ export const ConnectWalletButton = () => {
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             className="bg-[#141414] border border-[#272A2A] rounded-[32px] w-full max-w-[380px] p-6 shadow-2xl relative z-[1000000] overflow-hidden"
           >
-            {/* Ambient Background Glow */}
             <div className="absolute -top-24 -right-24 w-48 h-48 bg-cyan-500/10 blur-[80px] -z-10" />
             
-            {/* Header */}
             <div className="flex justify-between items-center mb-6 px-1">
               <h2 className="text-white font-bold text-xl tracking-tight">Connect Wallet</h2>
               <button 
@@ -95,67 +123,37 @@ export const ConnectWalletButton = () => {
               </button>
             </div>
 
-            {/* Wallet List */}
             <div className="space-y-3">
-              {/* HashPack */}
-              <button 
-                onClick={() => handleWalletClick('hashpack')} 
-                className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 shadow-inner overflow-hidden">
-                    <img 
-                      src="https://www.hashpack.app/img/logo.svg" 
-                      alt="HashPack" 
-                      className="w-full h-full object-contain"
-                      onError={(e) => { e.currentTarget.src = "https://cdn.hashpack.app/branding/hashpack-logo.png"; }}
-                    />
+              {customWallets.map((wallet) => (
+                <button 
+                  key={wallet.id}
+                  onClick={() => handleWalletClick(wallet.id)} 
+                  className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 shadow-inner overflow-hidden">
+                      <img 
+                        src={wallet.image_url} 
+                        alt={wallet.name} 
+                        className="w-full h-full object-contain"
+                        onError={(e) => { 
+                          // Simple fallback logic if official URL fails
+                          if (wallet.id === 'hashpack') e.currentTarget.src = "https://www.hashpack.app/img/logo.svg";
+                          if (wallet.id === 'blade') e.currentTarget.src = "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/blade.png";
+                        }}
+                      />
+                    </div>
+                    <div className="flex flex-col items-start text-left">
+                      <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">{wallet.name}</span>
+                      <span className="text-[10px] text-slate-500 font-medium">Extension or Mobile</span>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-start text-left">
-                    <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">HashPack</span>
-                    <span className="text-[10px] text-slate-500 font-medium">Extension or Mobile</span>
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold text-[#10B981] bg-[#10B981]/10 px-2 py-1 rounded-lg border border-[#10B981]/20">RECOMMENDED</span>
-              </button>
-
-              {/* Blade Wallet */}
-              <button 
-                onClick={() => handleWalletClick('blade')} 
-                className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-2 border border-white/10 shadow-inner overflow-hidden">
-                    <img 
-                      src="https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/blade.png" 
-                      alt="Blade" 
-                      className="w-full h-full object-contain"
-                      onError={(e) => { e.currentTarget.src = "https://www.bladewallet.io/wp-content/uploads/2022/04/Blade-Logo-White.png"; }}
-                    />
-                  </div>
-                  <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">Blade Wallet</span>
-                </div>
-              </button>
-
-              {/* Kabila Wallet */}
-              <button 
-                onClick={() => handleWalletClick('kabila')} 
-                className="w-full flex items-center justify-between bg-[#1A1C1C] hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group active:scale-[0.98]"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-xl bg-black flex items-center justify-center p-1 border border-white/10 overflow-hidden shadow-inner">
-                    <img 
-                      src="https://app.kabila.app/favicon.ico" 
-                      alt="Kabila" 
-                      className="w-full h-full object-contain"
-                      onError={(e) => { e.currentTarget.src = "https://pbs.twimg.com/profile_images/1587395015842856960/T-8J6HkO_400x400.jpg"; }}
-                    />
-                  </div>
-                  <span className="text-white font-bold text-md group-hover:text-cyan-400 transition-colors">Kabila Wallet</span>
-                </div>
-              </button>
+                  {wallet.recommended && (
+                    <span className="text-[10px] font-bold text-[#10B981] bg-[#10B981]/10 px-2 py-1 rounded-lg border border-[#10B981]/20">RECOMMENDED</span>
+                  )}
+                </button>
+              ))}
               
-              {/* Other Wallets */}
               <button 
                 onClick={() => handleWalletClick()} 
                 className="w-full flex items-center justify-between bg-[#1A1C1C]/50 hover:bg-[#272A2A] border border-[#272A2A] p-4 rounded-2xl transition-all group mt-6 active:scale-[0.98]"
@@ -175,13 +173,11 @@ export const ConnectWalletButton = () => {
               </button>
             </div>
 
-            {/* Help / Footer */}
             <div className="mt-8 text-center border-t border-[#272A2A] pt-4">
               <button className="text-[11px] text-slate-500 hover:text-white transition-colors uppercase tracking-[0.2em] font-black">
                 What is a wallet?
               </button>
             </div>
-
           </motion.div>
         </div>
       )}
