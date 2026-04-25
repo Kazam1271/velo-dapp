@@ -7,7 +7,7 @@ import { toast } from "sonner";
 const appMetadata = {
     name: "Velo DEX",
     description: "Zero-Slippage OTC Trading Desk",
-    icons: ["https://cdn.hashpack.app/branding/hashpack-logo.png"], // PNG is more reliable for wallet previews
+    icons: ["https://velo-swart.vercel.app/logo.png"], // Use our own hosted official logo
     url: "https://velo-swart.vercel.app"
 };
 
