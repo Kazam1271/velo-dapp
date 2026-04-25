@@ -20,6 +20,14 @@ export const ConnectWalletButton = () => {
   const handleWalletClick = (walletId?: string) => {
     if (!hashconnect) return;
     
+    // ── Task: In-App Browser Support ──────────────────────────
+    // If we're inside HashPack's in-app browser, use direct connection
+    if (typeof window !== 'undefined' && (window as any).hashpack) {
+      (hashconnect as any).connectToLocalWallet();
+      setIsModalOpen(false);
+      return;
+    }
+
     const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const pairingString = (hashconnect as any).pairingString;
     
@@ -33,7 +41,6 @@ export const ConnectWalletButton = () => {
       }
     } else {
       // For Desktop or generic mobile, use the universal modal
-      // This is the most reliable way to trigger extensions on desktop
       try {
         hashconnect.openPairingModal();
       } catch (err) {
