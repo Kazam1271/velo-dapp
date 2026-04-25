@@ -184,10 +184,23 @@ export const ConnectWalletButton = () => {
     </AnimatePresence>
   );
 
+  const handleConnect = () => {
+    if (!hashconnect) return;
+
+    // 1. Silver Bullet: If inside HashPack's mobile dApp browser, bypass the modal entirely!
+    if (typeof window !== 'undefined' && (window as any).hashpack) {
+      (hashconnect as any).connectToLocalWallet();
+      return;
+    }
+
+    // 2. Otherwise (Desktop or standard Mobile Safari/Chrome), open the modal
+    setIsModalOpen(true);
+  };
+
   return (
     <>
       <button 
-        onClick={() => setIsModalOpen(true)} 
+        onClick={handleConnect} 
         className="bg-cyan-500 text-black font-extrabold px-7 py-3 rounded-2xl hover:bg-cyan-400 transition-all shadow-[0_0_20px_rgba(6,182,212,0.4)] active:scale-95 text-sm tracking-tight"
       >
         Connect Wallet
