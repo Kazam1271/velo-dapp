@@ -67,16 +67,13 @@ export default function Header() {
   return (
     <header className="flex flex-col w-full sticky top-0 z-50">
       <div className="flex items-center justify-between px-4 py-4 border-b border-velo-border bg-velo-bg/80 backdrop-blur-md">
-        <div className="flex items-center gap-2.5 group cursor-pointer">
-          <div className="relative w-9 h-9 flex items-center justify-center">
-            <div className="absolute inset-0 bg-velo-cyan/20 rounded-full blur-md group-hover:bg-velo-cyan/30 transition-all" />
-            <img 
-              src="/logov.png" 
-              alt="Velo Symbol" 
-              className="w-full h-full object-contain relative z-10 drop-shadow-[0_0_8px_rgba(6,182,212,0.5)]" 
-            />
-          </div>
-          <span className="text-2xl font-black text-white tracking-tighter italic">VELO</span>
+        <div className="flex items-center gap-3 group cursor-pointer">
+          <img 
+            src="/logov.png" 
+            alt="Velo Symbol" 
+            className="w-10 h-10 object-contain drop-shadow-[0_0_12px_rgba(6,182,212,0.6)] group-hover:scale-110 transition-transform" 
+          />
+          <span className="text-3xl font-black text-white tracking-tighter italic leading-none">VELO</span>
         </div>
 
         <div className="flex items-center gap-3">
