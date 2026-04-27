@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import dynamic from "next/dynamic";
 import { 
   User, 
   Edit2, 
   Copy, 
   Check, 
+  X,
   ArrowRightLeft, 
   Plus, 
   Send, 
@@ -37,6 +38,31 @@ const mockActivity = [
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<'portfolio' | 'activity'>('portfolio');
   const [copied, setCopied] = useState(false);
+  
+  // New States for Interactivity
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [username, setUsername] = useState('DigitalPioneer#8761');
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempUsername, setTempUsername] = useState(username);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setAvatarUrl(url);
+    }
+  };
+
+  const handleSaveUsername = () => {
+    setUsername(tempUsername);
+    setIsEditing(false);
+  };
+
+  const handleCancelEdit = () => {
+    setTempUsername(username);
+    setIsEditing(false);
+  };
 
   const handleCopy = () => {
     navigator.clipboard.writeText("0.0.145...b7");
@@ -56,9 +82,20 @@ export default function ProfilePage() {
             
             <div className="flex flex-col items-center text-center space-y-6">
               {/* Avatar Section */}
-              <div className="relative group cursor-pointer">
-                <div className="w-28 h-28 rounded-full border-2 border-velo-cyan/30 flex items-center justify-center bg-black/40 backdrop-blur-sm group-hover:border-velo-cyan transition-all duration-300 shadow-[0_0_20px_rgba(6,182,212,0.1)]">
-                  <User size={48} className="text-velo-cyan/60 group-hover:text-velo-cyan transition-colors" />
+              <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  className="hidden" 
+                  ref={fileInputRef} 
+                  onChange={handleImageUpload} 
+                />
+                <div className="w-28 h-28 rounded-full border-2 border-velo-cyan/30 flex items-center justify-center bg-black/40 backdrop-blur-sm group-hover:border-velo-cyan transition-all duration-300 shadow-[0_0_20px_rgba(6,182,212,0.1)] overflow-hidden">
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={48} className="text-velo-cyan/60 group-hover:text-velo-cyan transition-colors" />
+                  )}
                 </div>
                 <div className="mt-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest group-hover:text-velo-cyan transition-colors">
                   Upload Picture
@@ -67,12 +104,45 @@ export default function ProfilePage() {
 
               {/* Name Section */}
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-black tracking-tight">
-                  DigitalPioneer<span className="text-velo-cyan">#8761</span>
-                </h1>
-                <button className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all">
-                  <Edit2 size={16} />
-                </button>
+                {isEditing ? (
+                  <div className="flex items-center gap-2 animate-in zoom-in-95 duration-200">
+                    <input 
+                      type="text"
+                      value={tempUsername}
+                      onChange={(e) => setTempUsername(e.target.value)}
+                      className="bg-black/40 border border-velo-cyan/50 rounded-xl px-4 py-2 text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-velo-cyan/30 w-64"
+                      autoFocus
+                    />
+                    <button 
+                      onClick={handleSaveUsername}
+                      className="p-2 rounded-xl bg-velo-green/20 text-velo-green hover:bg-velo-green/30 transition-all"
+                    >
+                      <Check size={18} />
+                    </button>
+                    <button 
+                      onClick={handleCancelEdit}
+                      className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <h1 className="text-3xl font-black tracking-tight">
+                      {username.includes('#') ? (
+                        <>
+                          {username.split('#')[0]}<span className="text-velo-cyan">#{username.split('#')[1]}</span>
+                        </>
+                      ) : username}
+                    </h1>
+                    <button 
+                      onClick={() => setIsEditing(true)}
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* ID & Address Section */}
