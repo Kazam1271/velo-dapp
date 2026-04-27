@@ -58,7 +58,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "BONZO",
     name: "Bonzo Finance",
-    logoURI: "https://assets.coingecko.com/coins/images/35017/standard/bonzo_logo.png",
+    logoURI: "/bonzo.png",
     decimals: 6,
     tokenId: "0.0.8735150",
     mainnetId: "0.0.4578144",
