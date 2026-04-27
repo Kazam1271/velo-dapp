@@ -72,6 +72,12 @@ export default function ProfileView() {
       try {
         const id = 'V-' + window.btoa(accountId).substring(0, 8).toUpperCase();
         setVeloId(id);
+
+        // Load persisted profile
+        const savedUsername = localStorage.getItem(`username_${accountId}`);
+        const savedAvatar = localStorage.getItem(`avatar_${accountId}`);
+        if (savedUsername) setUsername(savedUsername);
+        if (savedAvatar) setAvatarUrl(savedAvatar);
       } catch (e) {
         setVeloId('V-IDENTITY');
       }
@@ -95,24 +101,31 @@ export default function ProfileView() {
       setIsLoadingActivity(true);
 
       try {
-        // 1. Fetch Balances
+        // 1. Fetch real prices from SaucerSwap
+        const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
+        const saucerTokens = await saucerResponse.json();
+        const priceMap = new Map();
+        saucerTokens.forEach((t: any) => priceMap.set(t.symbol, t.priceUsd));
+
+        // 2. Fetch Balances
         const balRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/balances?account.id=${accountId}`);
         if (balRes.ok) {
           const balData = await balRes.json();
           const accountBal = balData.balances[0];
           
+          const hbarPrice = priceMap.get('WHBAR') || priceMap.get('HBAR') || 0.08;
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
               name: 'Hedera', 
               ticker: 'HBAR', 
               balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
-              value: `$${(hbarBalValue * 0.08).toFixed(2)}`, 
+              value: `$${(hbarBalValue * hbarPrice).toFixed(2)}`, 
               icon: 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' 
             }
           ];
 
-          // 2. Fetch metadata for each token to get Name, Symbol, and Decimals
+          // 3. Fetch metadata for each token to get Name, Symbol, and Decimals
           if (accountBal.tokens && accountBal.tokens.length > 0) {
             const enrichedTokens = await Promise.all(
               accountBal.tokens.map(async (token: any) => {
@@ -126,11 +139,15 @@ export default function ProfileView() {
 
                   if (trueBalance === 0) return null; // Filter zero balances
 
+                  const cleanSymbol = tokenInfo.symbol.replace('(Mock)', '').trim();
+                  const tokenPrice = priceMap.get(cleanSymbol) || 0;
+                  const calculatedUsdValue = trueBalance * tokenPrice;
+
                   return {
                     name: tokenInfo.name || `Token ${token.token_id.split('.').pop()}`,
                     ticker: tokenInfo.symbol || 'Unknown',
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
-                    value: "$0.00", // Placeholder until price feeds
+                    value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
                     icon: "/logov.png"
                   };
                 } catch (error) {
@@ -146,17 +163,17 @@ export default function ProfileView() {
               })
             );
 
-            // Filter out nulls (zero balances) and add to tokens list
             enrichedTokens.forEach(t => {
               if (t) tokens.push(t);
             });
           }
 
           setPortfolio(tokens);
-          setTotalValue(tokens.reduce((acc, curr) => acc + parseFloat(curr.value.replace('$', '')), 0).toFixed(2));
+          const grandTotal = tokens.reduce((acc, curr) => acc + parseFloat(curr.value.replace('$', '')), 0);
+          setTotalValue(grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
 
-        // 2. Fetch Activity
+        // 4. Fetch Activity
         const actRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=10&order=desc`);
         if (actRes.ok) {
           const actData = await actRes.json();
@@ -190,9 +207,31 @@ export default function ProfileView() {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setAvatarUrl(url);
-      toast.success("Profile picture updated locally!");
+      // Limit file size to ~2MB for localStorage
+      if (file.size > 2 * 1024 * 1024) {
+        toast.error("Image too large. Please select an image under 2MB.");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setAvatarUrl(base64String);
+        if (accountId) {
+          localStorage.setItem(`avatar_${accountId}`, base64String);
+          toast.success("Profile picture saved!");
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSaveUsername = () => {
+    setUsername(tempUsername);
+    setIsEditing(false);
+    if (accountId) {
+      localStorage.setItem(`username_${accountId}`, tempUsername);
+      toast.success("Username saved!");
     }
   };
 
@@ -245,7 +284,7 @@ export default function ProfileView() {
                       className="bg-black/40 border border-velo-cyan/50 rounded-xl px-4 py-2 text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-velo-cyan/30 w-64"
                       autoFocus
                     />
-                    <button onClick={() => { setUsername(tempUsername); setIsEditing(false); toast.success("Username saved!"); }} className="p-2 rounded-xl bg-velo-green/20 text-velo-green hover:bg-velo-green/30 transition-all"><Check size={18} /></button>
+                    <button onClick={handleSaveUsername} className="p-2 rounded-xl bg-velo-green/20 text-velo-green hover:bg-velo-green/30 transition-all"><Check size={18} /></button>
                     <button onClick={() => { setTempUsername(username); setIsEditing(false); }} className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"><X size={18} /></button>
                   </div>
                 ) : (
