@@ -47,6 +47,7 @@ export default function ProfilePage() {
   const { pairingData, isConnected } = useHashConnect();
   const accountId = pairingData?.accountIds?.[0] || null;
   
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<'portfolio' | 'activity'>('portfolio');
   const [copiedId, setCopiedId] = useState(false);
   const [copiedAddr, setCopiedAddr] = useState(false);
@@ -69,7 +70,11 @@ export default function ProfilePage() {
   const [veloId, setVeloId] = useState('Not Connected');
   
   useEffect(() => {
-    if (accountId && typeof window !== 'undefined') {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted && accountId && typeof window !== 'undefined') {
       try {
         const id = 'V-' + window.btoa(accountId).substring(0, 8).toUpperCase();
         setVeloId(id);
@@ -79,12 +84,12 @@ export default function ProfilePage() {
     } else {
       setVeloId('Not Connected');
     }
-  }, [accountId]);
+  }, [accountId, mounted]);
 
   // ── Fetch Live Data ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!accountId) {
+    if (!mounted || !accountId) {
       setPortfolio([]);
       setActivity([]);
       setTotalValue("0.00");
@@ -180,6 +185,8 @@ export default function ProfilePage() {
     }
     toast.success("Copied to clipboard!");
   };
+
+  if (!mounted) return <div className="min-h-screen bg-velo-bg" />;
 
   return (
     <div className="min-h-screen bg-velo-bg text-white relative flex justify-center selection:bg-velo-cyan/30">
