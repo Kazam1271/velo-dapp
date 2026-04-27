@@ -65,7 +65,21 @@ export default function ProfilePage() {
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
   const [totalValue, setTotalValue] = useState("0.00");
 
-  const veloId = accountId ? 'V-' + btoa(accountId).substring(0, 8).toUpperCase() : 'Not Connected';
+  // Safe client-side btoa for SSR
+  const [veloId, setVeloId] = useState('Not Connected');
+  
+  useEffect(() => {
+    if (accountId && typeof window !== 'undefined') {
+      try {
+        const id = 'V-' + window.btoa(accountId).substring(0, 8).toUpperCase();
+        setVeloId(id);
+      } catch (e) {
+        setVeloId('V-IDENTITY');
+      }
+    } else {
+      setVeloId('Not Connected');
+    }
+  }, [accountId]);
 
   // ── Fetch Live Data ────────────────────────────────────────────────────────
 
