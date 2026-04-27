@@ -13,6 +13,7 @@ import {
   ArrowDownLeft,
   Plus, 
   Send, 
+  Download,
   ChevronRight,
   TrendingUp,
   Wallet,
@@ -107,6 +108,9 @@ export default function ProfileView() {
       try {
         // 1. Fetch real prices and icons from SaucerSwap (Defensive)
         let tokenDataMap = new Map();
+        let tokenMetadataCache = new Map<string, { symbol: string, decimals: number }>();
+        tokenMetadataCache.set('HBAR', { symbol: 'HBAR', decimals: 8 });
+
         try {
           const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
           if (saucerResponse.ok) {
@@ -154,16 +158,16 @@ export default function ProfileView() {
                   const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${token.token_id}`);
                   const tokenInfo = tokenInfoRes.ok ? await tokenInfoRes.json() : {};
                   
-                  // Defensive check: Ensure decimals exist, fallback to 0 to prevent NaN
                   const decimals = tokenInfo.decimals ? parseInt(tokenInfo.decimals) : 0;
-                  const trueBalance = token.balance / Math.pow(10, decimals);
-
-                  if (trueBalance === 0) return null; // Filter zero balances
-
-                  // Defensive check: Ensure symbol exists before string manipulation
                   const rawSymbol = tokenInfo.symbol || 'UNKNOWN';
                   const cleanSymbol = rawSymbol.replace('(Mock)', '').trim();
                   
+                  // Update cache for Activity Tab
+                  tokenMetadataCache.set(token.token_id, { symbol: cleanSymbol, decimals });
+
+                  const trueBalance = token.balance / Math.pow(10, decimals);
+                  if (trueBalance === 0) return null;
+
                   const saucerData = tokenDataMap.get(cleanSymbol) || { price: 0, icon: null };
                   const calculatedUsdValue = trueBalance * parseFloat(saucerData.price.toString());
 
@@ -177,13 +181,7 @@ export default function ProfileView() {
                   };
                 } catch (error) {
                   console.error(`Failed to process token ${token.token_id}:`, error);
-                  return {
-                    name: `Token ${token.token_id.split('.').pop()}`,
-                    ticker: 'UNKNOWN',
-                    balance: (token.balance || 0).toLocaleString(),
-                    value: "$0.00",
-                    icon: "/logov.png"
-                  };
+                  return null;
                 }
               })
             );
@@ -201,91 +199,100 @@ export default function ProfileView() {
           setTotalValue(grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
 
-        // 4. Fetch Activity (Smart Mirror Node Parsing)
+        // 4. Fetch Activity (Advanced Smart Parsing)
         const actRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=20&order=desc`);
         if (actRes.ok) {
           const actData = await actRes.json();
           const items: ActivityItem[] = actData.transactions.map((tx: any) => {
             try {
-              // Analyze HBAR transfers (filter out fees)
               const hbarTransfers = tx.transfers || [];
+              const tokenTransfers = tx.token_transfers || [];
+              
               const userHbarChange = hbarTransfers
                 .filter((tf: any) => {
                   const accNum = parseInt(tf.account.split('.').pop());
-                  return !(accNum >= 3 && accNum <= 29); // Filter node fees
+                  return !(accNum >= 3 && accNum <= 29);
                 })
-                .reduce((acc: number, tf: any) => {
-                  if (tf.account === accountId) return acc + tf.amount;
-                  return acc;
-                }, 0);
+                .reduce((acc: number, tf: any) => tf.account === accountId ? acc + tf.amount : acc, 0);
 
-              // Analyze Token transfers
-              const tokenTransfers = tx.token_transfers || [];
               const userTokenChanges = tokenTransfers.filter((tf: any) => tf.account === accountId);
               
-              // ── Determine Action Type ──
-              let actionType: ActivityItem['type'] = 'transfer';
               let actionLabel = 'Transaction';
-              
-              if (tx.name === 'CONTRACT_CALL' || tx.name === 'CONTRACT_EXECUTE') {
-                actionType = 'contract';
-                actionLabel = 'Contract Interaction';
-              } else if (userTokenChanges.length >= 2) {
-                actionType = 'swap';
-                actionLabel = 'Swapped Assets';
-              } else if (userHbarChange > 0 || userTokenChanges.some((tf: any) => tf.amount > 0)) {
-                actionType = 'receive';
-                actionLabel = 'Received Assets';
-              } else if (userHbarChange < 0 || userTokenChanges.some((tf: any) => tf.amount < 0)) {
-                actionType = 'sent';
-                actionLabel = 'Sent Assets';
-              }
-
-              // ── Extract Primary Asset & Value ──
-              let primaryAmount = 0;
-              let primaryTicker = 'HBAR';
+              let actionType: ActivityItem['type'] = 'transfer';
+              let assetDisplay = '';
               let usdValue = 0;
 
-              if (userTokenChanges.length > 0) {
-                const mainToken = userTokenChanges[0];
-                primaryAmount = Math.abs(mainToken.amount);
-                // Note: In a real app we'd fetch decimals here, but we'll fallback to 0 or 8
-                primaryAmount = primaryAmount / Math.pow(10, 8); 
-                primaryTicker = mainToken.token_id; // Temporary, ideally resolve to symbol
+              // ── Logic: Identify Swap ──
+              if (userTokenChanges.length >= 2 || (userTokenChanges.length === 1 && Math.abs(userHbarChange) > 10000000)) {
+                actionType = 'swap';
+                const outToken = userTokenChanges.find(t => t.amount < 0) || (userHbarChange < 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
+                const inToken = userTokenChanges.find(t => t.amount > 0) || (userHbarChange > 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
                 
-                // Try to find ticker symbol if possible for mapping
-                // (This is a simplified version, ideally we'd have a token cache)
-              } else {
-                primaryAmount = Math.abs(userHbarChange) / 100000000;
-                usdValue = primaryAmount * (tokenDataMap.get('HBAR')?.price || 0.08);
+                if (outToken && inToken) {
+                  const metaOut = tokenMetadataCache.get(outToken.token_id) || { symbol: outToken.token_id, decimals: 8 };
+                  const metaIn = tokenMetadataCache.get(inToken.token_id) || { symbol: inToken.token_id, decimals: 8 };
+                  const amtOut = Math.abs(outToken.amount) / Math.pow(10, metaOut.decimals);
+                  const amtIn = Math.abs(inToken.amount) / Math.pow(10, metaIn.decimals);
+                  
+                  actionLabel = `Swapped ${amtOut.toFixed(2)} ${metaOut.symbol} for ${amtIn.toFixed(2)} ${metaIn.symbol}`;
+                  assetDisplay = 'Velo DEX';
+                } else {
+                  actionLabel = 'Swapped Assets';
+                }
+              } 
+              // ── Logic: Identify Sent ──
+              else if (userHbarChange < -5000000 || userTokenChanges.some(t => t.amount < 0)) {
+                actionType = 'transfer';
+                const mainToken = userTokenChanges.find(t => t.amount < 0) || { token_id: 'HBAR', amount: userHbarChange };
+                const meta = tokenMetadataCache.get(mainToken.token_id) || { symbol: mainToken.token_id, decimals: 8 };
+                const amt = Math.abs(mainToken.amount) / Math.pow(10, meta.decimals);
+                
+                // Find recipient
+                const recipient = mainToken.token_id === 'HBAR' 
+                  ? hbarTransfers.find((tf: any) => tf.amount > 0 && tf.account !== accountId)?.account 
+                  : tokenTransfers.find((tf: any) => tf.token_id === mainToken.token_id && tf.amount > 0 && tf.account !== accountId)?.account;
+
+                actionLabel = `Sent ${amt.toFixed(2)} ${meta.symbol}`;
+                assetDisplay = recipient ? `To ${recipient}` : 'Direct Transfer';
+                usdValue = amt * (tokenDataMap.get(meta.symbol)?.price || 0);
+              }
+              // ── Logic: Identify Received ──
+              else if (userHbarChange > 5000000 || userTokenChanges.some(t => t.amount > 0)) {
+                actionType = 'receive';
+                const mainToken = userTokenChanges.find(t => t.amount > 0) || { token_id: 'HBAR', amount: userHbarChange };
+                const meta = tokenMetadataCache.get(mainToken.token_id) || { symbol: mainToken.token_id, decimals: 8 };
+                const amt = Math.abs(mainToken.amount) / Math.pow(10, meta.decimals);
+
+                // Find sender
+                const sender = mainToken.token_id === 'HBAR' 
+                  ? hbarTransfers.find((tf: any) => tf.amount < 0 && tf.account !== accountId)?.account 
+                  : tokenTransfers.find((tf: any) => tf.token_id === mainToken.token_id && tf.amount < 0 && tf.account !== accountId)?.account;
+
+                actionLabel = `Received ${amt.toFixed(2)} ${meta.symbol}`;
+                assetDisplay = sender ? `From ${sender}` : 'Incoming Transfer';
+                usdValue = amt * (tokenDataMap.get(meta.symbol)?.price || 0);
+              }
+              // ── Logic: Contract Interaction ──
+              else if (tx.name.includes('CONTRACT')) {
+                actionType = 'contract';
+                actionLabel = 'Contract Interaction';
+                assetDisplay = tx.transaction_id.split('@')[0];
               }
 
-              // ── Format Time ──
               const date = new Date(tx.consensus_timestamp * 1000);
-              const timeLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-              const isToday = new Date().toDateString() === date.toDateString();
-              const formattedTime = `${isToday ? 'Today' : date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeLabel}`;
+              const formattedTime = `${new Date().toDateString() === date.toDateString() ? 'Today' : date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 
               return {
                 action: actionLabel,
-                path: tx.transaction_id,
-                value: usdValue > 0 ? `$${usdValue.toFixed(2)}` : 'Value Pending',
+                path: assetDisplay,
+                value: usdValue > 0 ? `$${usdValue.toFixed(2)}` : '$0.00',
                 time: formattedTime,
                 type: actionType,
                 status: 'success',
-                hash: tx.transaction_id,
-                asset: `${primaryAmount.toFixed(2)} ${primaryTicker === 'HBAR' ? 'HBAR' : 'Tokens'}`
-              };
-            } catch (err) {
-              return {
-                action: 'Transaction',
-                path: tx.transaction_id,
-                value: '$0.00',
-                time: 'Just now',
-                type: 'transfer',
-                status: 'success',
                 hash: tx.transaction_id
               };
+            } catch (err) {
+              return null;
             }
           });
           setActivity(items.filter(Boolean));
@@ -504,19 +511,18 @@ export default function ProfileView() {
                             item.type === 'contract' ? "bg-purple-500/10 border-purple-500/20 text-purple-400" :
                             "bg-white/5 border-white/10 text-gray-400"}
                         `}>
-                          {item.type === 'receive' ? <ArrowDownLeft size={20} /> : 
-                           item.type === 'sent' ? <ArrowUpRight size={20} /> :
+                          {item.type === 'receive' ? <Download size={20} /> : 
+                           item.type === 'transfer' ? <Send size={20} /> :
                            item.type === 'swap' ? <ArrowRightLeft size={20} /> :
                            item.type === 'contract' ? <History size={20} /> :
-                           <ArrowRightLeft size={20} />}
+                           <Send size={20} />}
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-white flex items-center gap-2">
+                          <p className="text-sm font-bold text-white line-clamp-1 max-w-[200px]">
                             {item.action}
-                            {item.asset && <span className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-gray-400 font-medium">{item.asset}</span>}
                           </p>
-                          <p className="text-[10px] text-gray-500 font-mono tracking-tighter">
-                            {item.hash.substring(0, 8)}...{item.hash.substring(item.hash.length - 8)}
+                          <p className="text-[10px] text-gray-500 font-mono tracking-tighter truncate max-w-[150px]">
+                            {item.path}
                           </p>
                         </div>
                       </div>
