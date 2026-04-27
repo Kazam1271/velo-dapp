@@ -13,7 +13,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "HBAR",
     name: "Hedera",
-    logoURI: "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/hbar.png",
+    logoURI: "/hbar.png",
     decimals: 8,
     tokenId: "NATIVE",
     iconBg: "#1a1a1a",

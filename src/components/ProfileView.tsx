@@ -126,7 +126,7 @@ export default function ProfileView() {
           const balData = await balRes.json();
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
-          const hbarData = tokenDataMap.get('WHBAR') || tokenDataMap.get('HBAR') || { price: 0.08, icon: 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' };
+          const hbarData = tokenDataMap.get('WHBAR') || tokenDataMap.get('HBAR') || { price: 0.08, icon: '/hbar.png' };
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
@@ -134,7 +134,7 @@ export default function ProfileView() {
               ticker: 'HBAR', 
               balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
               value: `$${(hbarBalValue * hbarData.price).toFixed(2)}`, 
-              icon: hbarData.icon || 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' 
+              icon: hbarData.icon || '/hbar.png' 
             }
           ];
 
