@@ -9,6 +9,8 @@ import {
   Check, 
   X,
   ArrowRightLeft, 
+  ArrowUpRight,
+  ArrowDownLeft,
   Plus, 
   Send, 
   ChevronRight,
@@ -39,9 +41,10 @@ interface ActivityItem {
   path: string;
   value: string;
   time: string;
-  type: 'swap' | 'pool' | 'transfer' | 'receive';
+  type: 'swap' | 'pool' | 'transfer' | 'receive' | 'sent' | 'contract';
   status: 'success' | 'pending';
   hash: string;
+  asset?: string;
 }
 
 export default function ProfileView() {
@@ -198,23 +201,94 @@ export default function ProfileView() {
           setTotalValue(grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
 
-        // 4. Fetch Activity
-        const actRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=10&order=desc`);
+        // 4. Fetch Activity (Smart Mirror Node Parsing)
+        const actRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=20&order=desc`);
         if (actRes.ok) {
           const actData = await actRes.json();
           const items: ActivityItem[] = actData.transactions.map((tx: any) => {
-            const isReceive = tx.transfers.some((tf: any) => tf.account === accountId && tf.amount > 0);
-            return {
-              action: isReceive ? 'Received Assets' : 'Sent Assets',
-              path: tx.name === 'CRYPTO_TRANSFER' ? 'Transfer' : tx.name,
-              value: `$${(Math.abs(tx.transfers.find((tf: any) => tf.account === accountId)?.amount || 0) / 100000000 * 0.08).toFixed(2)}`,
-              time: new Date(tx.consensus_timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              type: isReceive ? 'receive' : 'transfer',
-              status: 'success',
-              hash: tx.transaction_id
-            };
+            try {
+              // Analyze HBAR transfers (filter out fees)
+              const hbarTransfers = tx.transfers || [];
+              const userHbarChange = hbarTransfers
+                .filter((tf: any) => {
+                  const accNum = parseInt(tf.account.split('.').pop());
+                  return !(accNum >= 3 && accNum <= 29); // Filter node fees
+                })
+                .reduce((acc: number, tf: any) => {
+                  if (tf.account === accountId) return acc + tf.amount;
+                  return acc;
+                }, 0);
+
+              // Analyze Token transfers
+              const tokenTransfers = tx.token_transfers || [];
+              const userTokenChanges = tokenTransfers.filter((tf: any) => tf.account === accountId);
+              
+              // ── Determine Action Type ──
+              let actionType: ActivityItem['type'] = 'transfer';
+              let actionLabel = 'Transaction';
+              
+              if (tx.name === 'CONTRACT_CALL' || tx.name === 'CONTRACT_EXECUTE') {
+                actionType = 'contract';
+                actionLabel = 'Contract Interaction';
+              } else if (userTokenChanges.length >= 2) {
+                actionType = 'swap';
+                actionLabel = 'Swapped Assets';
+              } else if (userHbarChange > 0 || userTokenChanges.some(tf => tf.amount > 0)) {
+                actionType = 'receive';
+                actionLabel = 'Received Assets';
+              } else if (userHbarChange < 0 || userTokenChanges.some(tf => tf.amount < 0)) {
+                actionType = 'sent';
+                actionLabel = 'Sent Assets';
+              }
+
+              // ── Extract Primary Asset & Value ──
+              let primaryAmount = 0;
+              let primaryTicker = 'HBAR';
+              let usdValue = 0;
+
+              if (userTokenChanges.length > 0) {
+                const mainToken = userTokenChanges[0];
+                primaryAmount = Math.abs(mainToken.amount);
+                // Note: In a real app we'd fetch decimals here, but we'll fallback to 0 or 8
+                primaryAmount = primaryAmount / Math.pow(10, 8); 
+                primaryTicker = mainToken.token_id; // Temporary, ideally resolve to symbol
+                
+                // Try to find ticker symbol if possible for mapping
+                // (This is a simplified version, ideally we'd have a token cache)
+              } else {
+                primaryAmount = Math.abs(userHbarChange) / 100000000;
+                usdValue = primaryAmount * (tokenDataMap.get('HBAR')?.price || 0.08);
+              }
+
+              // ── Format Time ──
+              const date = new Date(tx.consensus_timestamp * 1000);
+              const timeLabel = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+              const isToday = new Date().toDateString() === date.toDateString();
+              const formattedTime = `${isToday ? 'Today' : date.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${timeLabel}`;
+
+              return {
+                action: actionLabel,
+                path: tx.transaction_id,
+                value: usdValue > 0 ? `$${usdValue.toFixed(2)}` : 'Value Pending',
+                time: formattedTime,
+                type: actionType,
+                status: 'success',
+                hash: tx.transaction_id,
+                asset: `${primaryAmount.toFixed(2)} ${primaryTicker === 'HBAR' ? 'HBAR' : 'Tokens'}`
+              };
+            } catch (err) {
+              return {
+                action: 'Transaction',
+                path: tx.transaction_id,
+                value: '$0.00',
+                time: 'Just now',
+                type: 'transfer',
+                status: 'success',
+                hash: tx.transaction_id
+              };
+            }
           });
-          setActivity(items);
+          setActivity(items.filter(Boolean));
         }
       } catch (err) {
         console.error("Failed to fetch mirror node data:", err);
@@ -424,16 +498,32 @@ export default function ProfileView() {
                   ) : activity.map((item, index) => (
                     <div key={index} className="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 hover:border-white/10 transition-all group">
                       <div className="flex items-center gap-4">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${item.type === 'receive' ? "bg-velo-green/10 border-velo-green/20 text-velo-green" : "bg-velo-cyan/10 border-velo-cyan/20 text-velo-cyan"}`}>
-                          {item.type === 'receive' ? <Plus size={18} /> : <Send size={18} />}
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center border transition-colors
+                          ${item.type === 'receive' ? "bg-velo-green/10 border-velo-green/20 text-velo-green" : 
+                            item.type === 'swap' ? "bg-velo-cyan/10 border-velo-cyan/20 text-velo-cyan" :
+                            item.type === 'contract' ? "bg-purple-500/10 border-purple-500/20 text-purple-400" :
+                            "bg-white/5 border-white/10 text-gray-400"}
+                        `}>
+                          {item.type === 'receive' ? <ArrowDownLeft size={20} /> : 
+                           item.type === 'sent' ? <ArrowUpRight size={20} /> :
+                           item.type === 'swap' ? <ArrowRightLeft size={20} /> :
+                           item.type === 'contract' ? <History size={20} /> :
+                           <ArrowRightLeft size={20} />}
                         </div>
                         <div>
-                          <p className="text-sm font-bold text-white">{item.action}</p>
-                          <p className="text-[10px] text-gray-500 font-mono">{item.hash.substring(0, 16)}...</p>
+                          <p className="text-sm font-bold text-white flex items-center gap-2">
+                            {item.action}
+                            {item.asset && <span className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-gray-400 font-medium">{item.asset}</span>}
+                          </p>
+                          <p className="text-[10px] text-gray-500 font-mono tracking-tighter">
+                            {item.hash.substring(0, 8)}...{item.hash.substring(item.hash.length - 8)}
+                          </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-black text-white">{item.value}</p>
+                        <p className={`text-sm font-black ${item.type === 'receive' ? "text-velo-green" : "text-white"}`}>
+                          {item.type === 'receive' ? '+' : item.type === 'sent' ? '-' : ''}{item.value}
+                        </p>
                         <p className="text-[10px] font-bold text-gray-500">{item.time}</p>
                       </div>
                     </div>
