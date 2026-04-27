@@ -225,8 +225,8 @@ export default function ProfileView() {
               // ── Logic: Identify Swap ──
               if (userTokenChanges.length >= 2 || (userTokenChanges.length === 1 && Math.abs(userHbarChange) > 10000000)) {
                 actionType = 'swap';
-                const outToken = userTokenChanges.find(t => t.amount < 0) || (userHbarChange < 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
-                const inToken = userTokenChanges.find(t => t.amount > 0) || (userHbarChange > 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
+                const outToken = userTokenChanges.find((t: any) => t.amount < 0) || (userHbarChange < 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
+                const inToken = userTokenChanges.find((t: any) => t.amount > 0) || (userHbarChange > 0 ? { token_id: 'HBAR', amount: userHbarChange } : null);
                 
                 if (outToken && inToken) {
                   const metaOut = tokenMetadataCache.get(outToken.token_id) || { symbol: outToken.token_id, decimals: 8 };
@@ -241,9 +241,9 @@ export default function ProfileView() {
                 }
               } 
               // ── Logic: Identify Sent ──
-              else if (userHbarChange < -5000000 || userTokenChanges.some(t => t.amount < 0)) {
+              else if (userHbarChange < -5000000 || userTokenChanges.some((t: any) => t.amount < 0)) {
                 actionType = 'transfer';
-                const mainToken = userTokenChanges.find(t => t.amount < 0) || { token_id: 'HBAR', amount: userHbarChange };
+                const mainToken = userTokenChanges.find((t: any) => t.amount < 0) || { token_id: 'HBAR', amount: userHbarChange };
                 const meta = tokenMetadataCache.get(mainToken.token_id) || { symbol: mainToken.token_id, decimals: 8 };
                 const amt = Math.abs(mainToken.amount) / Math.pow(10, meta.decimals);
                 
@@ -257,9 +257,9 @@ export default function ProfileView() {
                 usdValue = amt * (tokenDataMap.get(meta.symbol)?.price || 0);
               }
               // ── Logic: Identify Received ──
-              else if (userHbarChange > 5000000 || userTokenChanges.some(t => t.amount > 0)) {
+              else if (userHbarChange > 5000000 || userTokenChanges.some((t: any) => t.amount > 0)) {
                 actionType = 'receive';
-                const mainToken = userTokenChanges.find(t => t.amount > 0) || { token_id: 'HBAR', amount: userHbarChange };
+                const mainToken = userTokenChanges.find((t: any) => t.amount > 0) || { token_id: 'HBAR', amount: userHbarChange };
                 const meta = tokenMetadataCache.get(mainToken.token_id) || { symbol: mainToken.token_id, decimals: 8 };
                 const amt = Math.abs(mainToken.amount) / Math.pow(10, meta.decimals);
 
