@@ -1,0 +1,315 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { 
+  Send, 
+  Clipboard, 
+  ChevronDown, 
+  X, 
+  Check, 
+  ArrowRight,
+  Info,
+  Clock,
+  History,
+  Search
+} from "lucide-react";
+import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { TOKEN_LIST, Token } from "@/config/tokens";
+import { toast } from "sonner";
+
+interface Contact {
+  id: string;
+  name: string;
+}
+
+const RECENT_CONTACTS: Contact[] = [
+  { id: "0.0.123456", name: "V-8X9A" },
+  { id: "0.0.789012", name: "V-4K2L" },
+  { id: "0.0.345678", name: "V-9M1Q" },
+];
+
+export default function TransferView() {
+  const { pairingData } = useHashConnect();
+  const accountId = pairingData?.accountIds[0] || null;
+
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("");
+  const [selectedToken, setSelectedToken] = useState<Token>(TOKEN_LIST[0]);
+  const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [balances, setBalances] = useState<Record<string, number>>({});
+
+  // Mock balance fetching
+  useEffect(() => {
+    if (accountId) {
+      setBalances({
+        "NATIVE": 1250.00, // HBAR
+        "0.0.8735221": 2500.00, // USDC
+      });
+    }
+  }, [accountId]);
+
+  const currentBalance = balances[selectedToken.tokenId] || 0;
+  const protocolFee = parseFloat(amount || "0") * 0.0025;
+  const networkFee = 0.005; // Mock HBAR fee
+  const totalDeducted = parseFloat(amount || "0") + protocolFee;
+
+  const handleMax = () => {
+    setAmount(currentBalance.toString());
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setRecipient(text);
+      toast.success("Address pasted from clipboard");
+    } catch (err) {
+      toast.error("Failed to read from clipboard");
+    }
+  };
+
+  const isReady = recipient.trim().length > 0 && parseFloat(amount) > 0;
+
+  return (
+    <div className="min-h-screen pb-32 pt-20 px-4">
+      <div className="max-w-xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-black tracking-tight text-white flex items-center justify-center gap-3">
+            Transfer <span className="text-velo-cyan">Assets</span>
+          </h1>
+          <p className="text-gray-400 text-sm font-medium">
+            Send tokens instantly on the Hedera network.
+          </p>
+        </div>
+
+        {/* Main Card */}
+        <div className="bg-[#121826]/80 border border-white/5 rounded-[32px] p-6 shadow-2xl backdrop-blur-xl space-y-6 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-velo-cyan/50 to-transparent" />
+          
+          {/* Recipient Section */}
+          <div className="space-y-3">
+            <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] ml-1">Send to</label>
+            <div className="relative group">
+              <input 
+                type="text"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder="Enter Velo ID or Hedera Address (0.0.x)"
+                className="w-full bg-black/40 border border-white/5 rounded-2xl py-4 px-5 text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-velo-cyan/30 transition-all group-hover:border-white/10"
+              />
+              <button 
+                onClick={handlePaste}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-velo-cyan transition-all"
+              >
+                <Clipboard size={18} />
+              </button>
+            </div>
+
+            {/* Recent Contacts */}
+            <div className="flex items-center gap-3 pt-2">
+              <span className="text-[10px] font-bold text-gray-600 uppercase">Recent:</span>
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
+                {RECENT_CONTACTS.map((contact) => (
+                  <button 
+                    key={contact.id}
+                    onClick={() => setRecipient(contact.id)}
+                    className="flex-shrink-0 bg-black/20 border border-white/5 hover:border-velo-cyan/30 rounded-xl px-3 py-1.5 flex items-center gap-2 transition-all group"
+                  >
+                    <div className="w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[8px] font-bold text-gray-500 group-hover:text-velo-cyan">
+                      {contact.name.substring(0, 1)}
+                    </div>
+                    <span className="text-[10px] font-black text-gray-400 group-hover:text-white transition-colors uppercase tracking-tight">
+                      {contact.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Amount Section */}
+          <div className="space-y-3">
+            <div className="flex justify-between items-end ml-1">
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Amount</label>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold text-gray-500 tracking-tight">Available: {currentBalance.toLocaleString()} {selectedToken.symbol}</span>
+                <button 
+                  onClick={handleMax}
+                  className="text-[10px] font-black text-velo-cyan bg-velo-cyan/10 px-2 py-0.5 rounded-md hover:bg-velo-cyan/20 transition-all uppercase"
+                >
+                  MAX
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-black/40 border border-white/5 rounded-3xl p-5 flex items-center justify-between group focus-within:ring-2 focus-within:ring-velo-cyan/30 transition-all">
+              <input 
+                type="number"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className="bg-transparent text-3xl font-black text-white focus:outline-none w-full placeholder:text-gray-800"
+              />
+              
+              {/* Token Selector */}
+              <button 
+                onClick={() => setIsTokenSelectorOpen(true)}
+                className="flex items-center gap-2 bg-[#1a2130] hover:bg-[#232d42] transition-all rounded-2xl px-3 py-2 border border-white/5 group min-w-[110px] justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full overflow-hidden bg-black flex items-center justify-center">
+                    <img src={selectedToken.logoURI} alt={selectedToken.symbol} className="w-full h-full object-contain" />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-xs font-bold text-white tracking-wide leading-none">{selectedToken.symbol}</p>
+                    <p className="text-[8px] text-gray-500 font-medium">Token</p>
+                  </div>
+                </div>
+                <ChevronDown size={14} className="text-gray-500 group-hover:text-white transition-colors" />
+              </button>
+            </div>
+          </div>
+
+          {/* Fee Breakdown */}
+          <div className="bg-black/40 rounded-2xl p-4 border border-white/5 space-y-3">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-gray-500 font-medium">Protocol Fee (0.25%)</span>
+              <span className="text-white font-mono">{protocolFee.toFixed(2)} {selectedToken.symbol}</span>
+            </div>
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-gray-500 font-medium">Estimated Network Fee</span>
+              <span className="text-white font-mono">~{networkFee} HBAR</span>
+            </div>
+            <div className="h-px bg-white/5 my-1" />
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-black text-velo-cyan uppercase tracking-wider">Total Deducted</span>
+              <span className="text-sm font-black text-white">{totalDeducted.toFixed(2)} {selectedToken.symbol} + fees</span>
+            </div>
+          </div>
+
+          {/* Action Button */}
+          <button 
+            disabled={!isReady}
+            onClick={() => setIsReviewModalOpen(true)}
+            className={`w-full py-5 rounded-2xl font-black text-lg tracking-widest uppercase transition-all shadow-xl
+              ${isReady 
+                ? "bg-velo-cyan text-slate-950 hover:scale-[1.02] hover:shadow-velo-cyan/20 active:scale-[0.98]" 
+                : "bg-white/5 text-gray-600 cursor-not-allowed"
+              }`}
+          >
+            Review Transfer
+          </button>
+        </div>
+      </div>
+
+      {/* Review Modal */}
+      {isReviewModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsReviewModalOpen(false)} />
+          <div className="bg-[#0c1019] border border-white/10 rounded-[40px] w-full max-w-md p-8 relative shadow-2xl animate-in fade-in zoom-in duration-300">
+            <div className="space-y-8">
+              {/* Modal Header */}
+              <div className="text-center space-y-2">
+                <div className="w-16 h-16 bg-velo-cyan/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-velo-cyan/20">
+                  <Send className="text-velo-cyan" size={28} />
+                </div>
+                <h2 className="text-2xl font-black text-white tracking-tight">Review Transaction</h2>
+                <p className="text-gray-500 text-xs font-medium">Please verify the details before sending.</p>
+              </div>
+
+              {/* Transaction Details */}
+              <div className="space-y-6">
+                <div className="space-y-2 text-center">
+                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">You are sending</p>
+                  <div className="flex items-center justify-center gap-3">
+                    <span className="text-4xl font-black text-white">{amount}</span>
+                    <span className="text-2xl font-black text-velo-cyan">{selectedToken.symbol}</span>
+                  </div>
+                </div>
+
+                <div className="bg-black/30 rounded-3xl p-5 border border-white/5 space-y-4">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Recipient</p>
+                    <p className="text-sm font-mono text-white break-all bg-white/5 p-2 rounded-xl border border-white/5">{recipient}</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Protocol Fee</p>
+                      <p className="text-xs font-bold text-gray-300">{protocolFee.toFixed(4)} {selectedToken.symbol}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Network Fee</p>
+                      <p className="text-xs font-bold text-gray-300">~{networkFee} HBAR</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => setIsReviewModalOpen(false)}
+                  className="py-4 rounded-2xl font-black text-gray-500 hover:text-white bg-white/5 hover:bg-white/10 transition-all border border-white/5"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={() => {
+                    toast.promise(new Promise(resolve => setTimeout(resolve, 2000)), {
+                      loading: 'Processing transaction...',
+                      success: 'Transfer successful!',
+                      error: 'Transfer failed',
+                    });
+                    setIsReviewModalOpen(false);
+                  }}
+                  className="py-4 rounded-2xl font-black text-slate-950 bg-velo-cyan hover:bg-cyan-300 transition-all shadow-lg shadow-velo-cyan/20 flex items-center justify-center gap-2"
+                >
+                  Confirm & Send
+                  <ArrowRight size={18} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Token Selector Modal */}
+      {isTokenSelectorOpen && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={() => setIsTokenSelectorOpen(false)} />
+          <div className="bg-[#121826] border border-white/10 rounded-[32px] w-full max-w-sm overflow-hidden relative shadow-2xl">
+            <div className="p-4 border-b border-white/5 flex items-center justify-between">
+              <h3 className="font-black text-white uppercase tracking-widest text-sm">Select Token</h3>
+              <button onClick={() => setIsTokenSelectorOpen(false)} className="text-gray-500 hover:text-white"><X size={20} /></button>
+            </div>
+            <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
+              {TOKEN_LIST.map((token) => (
+                <button
+                  key={token.tokenId}
+                  onClick={() => {
+                    setSelectedToken(token);
+                    setIsTokenSelectorOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${selectedToken.tokenId === token.tokenId ? "bg-velo-cyan/10 border border-velo-cyan/30" : "hover:bg-white/5 border border-transparent"}`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full overflow-hidden bg-black flex items-center justify-center">
+                      <img src={token.logoURI} alt={token.symbol} className="w-full h-full object-contain" />
+                    </div>
+                    <div className="text-left">
+                      <p className="font-black text-white">{token.symbol}</p>
+                      <p className="text-[10px] text-gray-500">{token.name}</p>
+                    </div>
+                  </div>
+                  {selectedToken.tokenId === token.tokenId && <Check size={18} className="text-velo-cyan" />}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
