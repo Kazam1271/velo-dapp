@@ -71,7 +71,7 @@ export default function TransferView() {
   const isReady = recipient.trim().length > 0 && parseFloat(amount) > 0;
 
   return (
-    <div className="min-h-screen pb-32 pt-20 px-4">
+    <div className="space-y-6">
       <div className="max-w-xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">

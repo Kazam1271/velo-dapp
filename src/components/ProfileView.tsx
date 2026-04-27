@@ -25,7 +25,7 @@ import Image from "next/image";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { toast } from "sonner";
 
-const Header = nextDynamic(() => import("@/components/Header"), { ssr: false });
+
 
 interface TokenBalance {
   name: string;
@@ -375,11 +375,7 @@ export default function ProfileView() {
   };
 
   return (
-    <div className="min-h-screen bg-velo-bg text-white relative flex justify-center selection:bg-velo-cyan/30">
-      <main className="w-full max-w-lg min-h-screen flex flex-col mx-auto px-4 box-border pb-32">
-        <Header />
-
-        <div className="mt-8 space-y-6">
+    <div className="space-y-6">
           {/* Identity Card */}
           <section className="bg-velo-card border border-velo-border rounded-[32px] p-8 relative overflow-hidden shadow-2xl">
             <div className="absolute top-0 right-0 w-32 h-32 bg-velo-cyan/5 blur-[60px] -z-10" />
@@ -538,8 +534,6 @@ export default function ProfileView() {
               )}
             </div>
           </section>
-        </div>
-      </main>
     </div>
   );
 }
