@@ -63,7 +63,7 @@ export const TOKEN_LIST: Token[] = [
     tokenId: "0.0.8735150",
     mainnetId: "0.0.4578144",
     badge: "trending",
-    iconBg: "#0d0d1a",
+    iconBg: "#262e3d",
   },
   {
     symbol: "PACK",

@@ -31,6 +31,7 @@ interface TokenBalance {
   balance: string;
   value: string;
   icon: string;
+  iconBg?: string;
 }
 
 interface ActivityItem {
@@ -107,11 +108,14 @@ export default function ProfileView() {
           const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
           if (saucerResponse.ok) {
             const saucerTokens = await saucerResponse.json();
+            const { TOKEN_LIST } = await import("@/config/tokens");
             saucerTokens.forEach((t: any) => {
               if (t.symbol) {
+                const localToken = TOKEN_LIST.find(lt => lt.symbol === t.symbol);
                 tokenDataMap.set(t.symbol, {
                   price: t.priceUsd || 0,
-                  icon: t.icon ? `https://www.saucerswap.finance${t.icon}` : null
+                  icon: t.icon ? `https://www.saucerswap.finance${t.icon}` : null,
+                  iconBg: localToken?.iconBg || null
                 });
               }
             });
@@ -134,7 +138,8 @@ export default function ProfileView() {
               ticker: 'HBAR', 
               balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
               value: `$${(hbarBalValue * hbarData.price).toFixed(2)}`, 
-              icon: hbarData.icon || '/hbar.png' 
+              icon: hbarData.icon || '/hbar.png',
+              iconBg: '#000000'
             }
           ];
 
@@ -164,7 +169,8 @@ export default function ProfileView() {
                     ticker: rawSymbol,
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
                     value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
-                    icon: saucerData.icon || "/logov.png"
+                    icon: saucerData.icon || "/logov.png",
+                    iconBg: saucerData.iconBg || '#000000'
                   };
                 } catch (error) {
                   console.error(`Failed to process token ${token.token_id}:`, error);
@@ -385,7 +391,10 @@ export default function ProfileView() {
                     ) : portfolio.map((token) => (
                       <div key={token.ticker} className="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 hover:border-velo-cyan/20 transition-all group">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full overflow-hidden bg-black border border-white/5 flex items-center justify-center p-1.5 group-hover:border-velo-cyan/30 transition-all">
+                          <div 
+                            className="w-10 h-10 rounded-full overflow-hidden border border-white/5 flex items-center justify-center p-1.5 group-hover:border-velo-cyan/30 transition-all"
+                            style={{ backgroundColor: token.iconBg || '#000000' }}
+                          >
                             <img 
                               src={token.icon || '/logov.png'} 
                               alt={`${token.ticker} logo`} 
