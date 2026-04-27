@@ -31,11 +31,11 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "SAUCE",
     name: "SaucerSwap",
-    logoURI: "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/sauce.svg",
+    logoURI: "/sauce.png",
     decimals: 6,
     tokenId: "0.0.8735149",
     mainnetId: "0.0.731861",
-    iconBg: "#14142b",
+    iconBg: "#000000",
   },
   {
     symbol: "USDC",

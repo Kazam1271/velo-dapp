@@ -114,7 +114,7 @@ export default function ProfileView() {
                 const localToken = TOKEN_LIST.find(lt => lt.symbol === t.symbol);
                 tokenDataMap.set(t.symbol, {
                   price: t.priceUsd || 0,
-                  icon: t.icon ? `https://www.saucerswap.finance${t.icon}` : null,
+                  icon: localToken?.logoURI || (t.icon ? `https://www.saucerswap.finance${t.icon}` : null),
                   iconBg: localToken?.iconBg || null
                 });
               }
