@@ -1,11 +1,11 @@
 "use client";
 
-import { Zap, Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
-import Image from 'next/image';
+import { Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { HashConnectConnectionState } from "hashconnect";
 import { ConnectWalletButton } from "./ConnectWalletButton";
+import Image from "next/image";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
@@ -68,13 +68,13 @@ export default function Header() {
   return (
     <header className="flex flex-col w-full sticky top-0 z-50">
       <div className="flex items-center justify-between px-4 py-4 border-b border-velo-border bg-velo-bg/80 backdrop-blur-md">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 group cursor-pointer active:scale-95 transition-transform">
           <Image 
             src="/logo.png" 
             alt="Velo Logo" 
-            width={120} 
-            height={42} 
-            className="object-contain"
+            width={100} 
+            height={36} 
+            className="object-contain drop-shadow-[0_0_8px_rgba(6,182,212,0.3)]"
             priority
           />
         </div>

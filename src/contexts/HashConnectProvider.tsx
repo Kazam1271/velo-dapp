@@ -5,11 +5,10 @@ import { AccountId, LedgerId } from "@hiero-ledger/sdk";
 import { toast } from "sonner";
 
 const appMetadata = {
-  name: "Velo",
-  description: "The Premier Hedera Trading Desk",
-  // Must be an absolute URL for external wallets to fetch the image
-  icons: ["https://velo-swart.vercel.app/logov.png"], 
-  url: "https://velo-swart.vercel.app"
+    name: "Velo",
+    description: "The Premier Hedera Trading Desk",
+    icons: ["https://velo-swart.vercel.app/logov.png"], 
+    url: "https://velo-swart.vercel.app"
 };
 
 const projectId = "77347672d58ccce678cc86eee18c5918";
