@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useState, useRef, useEffect } from "react";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { 
   User, 
   Edit2, 
@@ -24,8 +24,8 @@ import Image from "next/image";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { toast } from "sonner";
 
-const Header = dynamic(() => import("@/components/Header"), { ssr: false });
-const BottomNav = dynamic(() => import("@/components/BottomNav"), { ssr: false });
+const Header = nextDynamic(() => import("@/components/Header"), { ssr: false });
+const BottomNav = nextDynamic(() => import("@/components/BottomNav"), { ssr: false });
 
 interface TokenBalance {
   name: string;
