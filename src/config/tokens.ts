@@ -21,7 +21,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "VELO",
     name: "Velo",
-    logoURI: "/logo.png",
+    logoURI: "/logov.png",
     decimals: 8,
     tokenId: "0.0.8725045",
     mainnetId: "0.0.0", // TBD

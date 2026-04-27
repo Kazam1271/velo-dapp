@@ -356,7 +356,7 @@ export default function SwapInterface() {
           <div className="flex justify-between items-center text-sm text-gray-400 mt-5 px-1">
             <div className="flex items-center gap-2">
               <span>Balance:</span>
-              <span className="text-velo-cyan">{payInfo.value}</span>
+              <span className="text-velo-cyan">{payInfo.value} {payToken.symbol}</span>
             </div>
             <div className="flex gap-3">
               {[25, 50, 75, 100].map(p => (
@@ -392,7 +392,7 @@ export default function SwapInterface() {
           )}
           <div className="flex items-center gap-2 text-sm text-gray-400 mt-3 px-1">
             <span>Balance:</span>
-            <span className="text-velo-cyan">{recvInfo.value}</span>
+            <span className="text-velo-cyan">{recvInfo.value} {recvToken.symbol}</span>
           </div>
         </div>
 
