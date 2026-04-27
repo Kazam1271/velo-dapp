@@ -101,28 +101,57 @@ export default function ProfileView() {
           const balData = await balRes.json();
           const accountBal = balData.balances[0];
           
-          const hbarBal = (accountBal.balance / 100000000).toFixed(2);
+          const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
               name: 'Hedera', 
               ticker: 'HBAR', 
-              balance: hbarBal, 
-              value: `$${(parseFloat(hbarBal) * 0.08).toFixed(2)}`, // Mock price for now
+              balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
+              value: `$${(hbarBalValue * 0.08).toFixed(2)}`, 
               icon: 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' 
             }
           ];
 
-          if (accountBal.tokens) {
-            accountBal.tokens.forEach((t: any) => {
-              tokens.push({
-                name: `Token ${t.token_id.split('.')[2]}`,
-                ticker: t.token_id,
-                balance: (t.balance / 10).toFixed(2), // Mock decimals
-                value: "$0.00",
-                icon: "/logov.png"
-              });
+          // 2. Fetch metadata for each token to get Name, Symbol, and Decimals
+          if (accountBal.tokens && accountBal.tokens.length > 0) {
+            const enrichedTokens = await Promise.all(
+              accountBal.tokens.map(async (token: any) => {
+                try {
+                  const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${token.token_id}`);
+                  const tokenInfo = await tokenInfoRes.json();
+                  
+                  // Calculate the true balance based on the token's specific decimals
+                  const decimals = parseInt(tokenInfo.decimals) || 0;
+                  const trueBalance = token.balance / Math.pow(10, decimals);
+
+                  if (trueBalance === 0) return null; // Filter zero balances
+
+                  return {
+                    name: tokenInfo.name || `Token ${token.token_id.split('.').pop()}`,
+                    ticker: tokenInfo.symbol || 'Unknown',
+                    balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
+                    value: "$0.00", // Placeholder until price feeds
+                    icon: "/logov.png"
+                  };
+                } catch (error) {
+                  console.error(`Failed to fetch metadata for token ${token.token_id}:`, error);
+                  return {
+                    name: `Token ${token.token_id.split('.').pop()}`,
+                    ticker: 'Unknown',
+                    balance: token.balance.toLocaleString(),
+                    value: "$0.00",
+                    icon: "/logov.png"
+                  };
+                }
+              })
+            );
+
+            // Filter out nulls (zero balances) and add to tokens list
+            enrichedTokens.forEach(t => {
+              if (t) tokens.push(t);
             });
           }
+
           setPortfolio(tokens);
           setTotalValue(tokens.reduce((acc, curr) => acc + parseFloat(curr.value.replace('$', '')), 0).toFixed(2));
         }
