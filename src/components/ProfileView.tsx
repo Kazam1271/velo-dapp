@@ -204,25 +204,47 @@ export default function ProfileView() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      // Limit file size to ~2MB for localStorage
-      if (file.size > 2 * 1024 * 1024) {
-        toast.error("Image too large. Please select an image under 2MB.");
-        return;
-      }
+    if (!file) return;
 
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setAvatarUrl(base64String);
+    try {
+      // 1. Create a temporary local preview so the UI feels fast
+      const objectUrl = URL.createObjectURL(file);
+      setAvatarUrl(objectUrl);
+
+      // 2. Prepare the file for the backend
+      const formData = new FormData();
+      formData.append("file", file);
+
+      // 3. Send to our Next.js API route
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (data.IpfsHash) {
+        // 4. Construct the permanent IPFS gateway URL
+        const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
+        const ipfsUrl = `${gatewayUrl}${data.IpfsHash}`;
+        
+        // 5. Update state and save the permanent link to local storage
+        setAvatarUrl(ipfsUrl);
         if (accountId) {
-          localStorage.setItem(`avatar_${accountId}`, base64String);
-          toast.success("Profile picture saved!");
+          localStorage.setItem(`avatar_${accountId}`, ipfsUrl);
         }
-      };
-      reader.readAsDataURL(file);
+        toast.success("Profile picture saved to IPFS!");
+        console.log("Successfully pinned to IPFS:", ipfsUrl);
+      } else {
+        throw new Error(data.error || "Upload failed");
+      }
+    } catch (error: any) {
+      console.error("Error uploading to IPFS:", error);
+      toast.error(`Upload failed: ${error.message}`);
+      // Revert to placeholder if failed
+      setAvatarUrl(null);
     }
   };
 
