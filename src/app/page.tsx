@@ -6,7 +6,6 @@ import { HCSDataProvider } from "@/contexts/HCSDataProvider";
 const Header = dynamic(() => import("@/components/Header"), { ssr: false });
 const SwapInterface = dynamic(() => import("@/components/SwapInterface"), { ssr: false });
 const HCSLiveFeed = dynamic(() => import("@/components/HCSLiveFeed"), { ssr: false });
-const BottomNav = dynamic(() => import("@/components/BottomNav"), { ssr: false });
 
 export default function Home() {
   return (
@@ -19,8 +18,6 @@ export default function Home() {
             <SwapInterface />
             <HCSLiveFeed />
           </div>
-
-          <BottomNav />
         </main>
       </div>
     </HCSDataProvider>

@@ -26,7 +26,6 @@ import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { toast } from "sonner";
 
 const Header = nextDynamic(() => import("@/components/Header"), { ssr: false });
-const BottomNav = nextDynamic(() => import("@/components/BottomNav"), { ssr: false });
 
 interface TokenBalance {
   name: string;
@@ -540,8 +539,6 @@ export default function ProfileView() {
             </div>
           </section>
         </div>
-
-        <BottomNav />
       </main>
     </div>
   );

@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
+import dynamic from "next/dynamic";
+
+const BottomNav = dynamic(() => import("@/components/BottomNav"), { ssr: false });
 
 export const metadata: Metadata = {
   title: 'Velo | Hedera DEX',
@@ -31,6 +34,7 @@ export default function RootLayout({
         <ClientWalletProvider>
           {children}
           <Toaster position="bottom-right" theme="dark" />
+          <BottomNav />
         </ClientWalletProvider>
       </body>
     </html>
