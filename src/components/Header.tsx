@@ -1,6 +1,7 @@
 "use client";
 
 import { Zap, Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
+import Image from 'next/image';
 import { useEffect, useRef, useState } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { HashConnectConnectionState } from "hashconnect";
@@ -67,13 +68,15 @@ export default function Header() {
   return (
     <header className="flex flex-col w-full sticky top-0 z-50">
       <div className="flex items-center justify-between px-4 py-4 border-b border-velo-border bg-velo-bg/80 backdrop-blur-md">
-        <div className="flex items-center gap-3 group cursor-pointer">
-          <img 
-            src="/logov.png" 
-            alt="Velo Symbol" 
-            className="w-10 h-10 object-contain drop-shadow-[0_0_12px_rgba(6,182,212,0.6)] group-hover:scale-110 transition-transform" 
+        <div className="flex items-center gap-2">
+          <Image 
+            src="/logo.png" 
+            alt="Velo Logo" 
+            width={120} 
+            height={42} 
+            className="object-contain"
+            priority
           />
-          <span className="text-3xl font-black text-white tracking-tighter italic leading-none">VELO</span>
         </div>
 
         <div className="flex items-center gap-3">

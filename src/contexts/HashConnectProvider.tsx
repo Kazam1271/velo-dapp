@@ -5,10 +5,11 @@ import { AccountId, LedgerId } from "@hiero-ledger/sdk";
 import { toast } from "sonner";
 
 const appMetadata = {
-    name: "Velo DEX",
-    description: "Zero-Slippage OTC Trading Desk",
-    icons: ["https://velo-swart.vercel.app/logo.png"], // Use our own hosted official logo
-    url: "https://velo-swart.vercel.app"
+  name: "Velo",
+  description: "The Premier Hedera Trading Desk",
+  // Must be an absolute URL for external wallets to fetch the image
+  icons: ["https://velo-swart.vercel.app/logov.png"], 
+  url: "https://velo-swart.vercel.app"
 };
 
 const projectId = "77347672d58ccce678cc86eee18c5918";

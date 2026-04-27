@@ -4,8 +4,17 @@ import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Velo",
-  description: "High-velocity Hedera DeFi dApp",
+  title: 'Velo | Hedera DEX',
+  description: 'Zero-slippage trading on the Hedera network.',
+  icons: {
+    icon: '/logov.png',
+    apple: '/logov.png',
+  },
+  openGraph: {
+    title: 'Velo DEX',
+    description: 'Zero-slippage trading on the Hedera network.',
+    images: ['/logo.png'], // Use the full logo for large social previews
+  }
 };
 
 export default function RootLayout({
