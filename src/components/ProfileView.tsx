@@ -385,7 +385,7 @@ export default function ProfileView() {
                     ) : portfolio.map((token) => (
                       <div key={token.ticker} className="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 hover:border-velo-cyan/20 transition-all group">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 rounded-full overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center p-1.5 group-hover:border-velo-cyan/30 transition-all">
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-black border border-white/5 flex items-center justify-center p-1.5 group-hover:border-velo-cyan/30 transition-all">
                             <img 
                               src={token.icon || '/logov.png'} 
                               alt={`${token.ticker} logo`} 
