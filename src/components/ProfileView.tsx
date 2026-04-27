@@ -101,17 +101,27 @@ export default function ProfileView() {
       setIsLoadingActivity(true);
 
       try {
-        // 1. Fetch real prices from SaucerSwap
-        const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
-        const saucerTokens = await saucerResponse.json();
-        const priceMap = new Map();
-        saucerTokens.forEach((t: any) => priceMap.set(t.symbol, t.priceUsd));
+        // 1. Fetch real prices from SaucerSwap (Defensive)
+        let priceMap = new Map();
+        try {
+          const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
+          if (saucerResponse.ok) {
+            const saucerTokens = await saucerResponse.json();
+            saucerTokens.forEach((t: any) => {
+              if (t.symbol && t.priceUsd) {
+                priceMap.set(t.symbol, t.priceUsd);
+              }
+            });
+          }
+        } catch (priceError) {
+          console.error("SaucerSwap pricing fetch failed, defaulting to $0:", priceError);
+        }
 
         // 2. Fetch Balances
         const balRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/balances?account.id=${accountId}`);
         if (balRes.ok) {
           const balData = await balRes.json();
-          const accountBal = balData.balances[0];
+          const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
           const hbarPrice = priceMap.get('WHBAR') || priceMap.get('HBAR') || 0.08;
           const hbarBalValue = (accountBal.balance / 100000000);
@@ -125,37 +135,40 @@ export default function ProfileView() {
             }
           ];
 
-          // 3. Fetch metadata for each token to get Name, Symbol, and Decimals
+          // 3. Fetch metadata for each token (Highly Defensive Loop)
           if (accountBal.tokens && accountBal.tokens.length > 0) {
             const enrichedTokens = await Promise.all(
               accountBal.tokens.map(async (token: any) => {
                 try {
                   const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${token.token_id}`);
-                  const tokenInfo = await tokenInfoRes.json();
+                  const tokenInfo = tokenInfoRes.ok ? await tokenInfoRes.json() : {};
                   
-                  // Calculate the true balance based on the token's specific decimals
-                  const decimals = parseInt(tokenInfo.decimals) || 0;
+                  // Defensive check: Ensure decimals exist, fallback to 0 to prevent NaN
+                  const decimals = tokenInfo.decimals ? parseInt(tokenInfo.decimals) : 0;
                   const trueBalance = token.balance / Math.pow(10, decimals);
 
                   if (trueBalance === 0) return null; // Filter zero balances
 
-                  const cleanSymbol = tokenInfo.symbol.replace('(Mock)', '').trim();
+                  // Defensive check: Ensure symbol exists before string manipulation
+                  const rawSymbol = tokenInfo.symbol || 'UNKNOWN';
+                  const cleanSymbol = rawSymbol.replace('(Mock)', '').trim();
+                  
                   const tokenPrice = priceMap.get(cleanSymbol) || 0;
-                  const calculatedUsdValue = trueBalance * tokenPrice;
+                  const calculatedUsdValue = trueBalance * parseFloat(tokenPrice.toString());
 
                   return {
                     name: tokenInfo.name || `Token ${token.token_id.split('.').pop()}`,
-                    ticker: tokenInfo.symbol || 'Unknown',
+                    ticker: rawSymbol,
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
                     value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
                     icon: "/logov.png"
                   };
                 } catch (error) {
-                  console.error(`Failed to fetch metadata for token ${token.token_id}:`, error);
+                  console.error(`Failed to process token ${token.token_id}:`, error);
                   return {
                     name: `Token ${token.token_id.split('.').pop()}`,
-                    ticker: 'Unknown',
-                    balance: token.balance.toLocaleString(),
+                    ticker: 'UNKNOWN',
+                    balance: (token.balance || 0).toLocaleString(),
                     value: "$0.00",
                     icon: "/logov.png"
                   };
@@ -169,7 +182,10 @@ export default function ProfileView() {
           }
 
           setPortfolio(tokens);
-          const grandTotal = tokens.reduce((acc, curr) => acc + parseFloat(curr.value.replace('$', '')), 0);
+          const grandTotal = tokens.reduce((acc, curr) => {
+            const val = parseFloat(curr.value.replace('$', '').replace(',', ''));
+            return acc + (isNaN(val) ? 0 : val);
+          }, 0);
           setTotalValue(grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
         }
 
