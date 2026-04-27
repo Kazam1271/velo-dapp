@@ -50,9 +50,10 @@ export default function TransferView() {
   }, [accountId]);
 
   const currentBalance = balances[selectedToken.tokenId] || 0;
-  const protocolFee = parseFloat(amount || "0") * 0.0025;
+  const grossAmount = parseFloat(amount || "0");
+  const protocolFee = grossAmount * 0.0025;
   const networkFee = 0.005; // Mock HBAR fee
-  const totalDeducted = parseFloat(amount || "0") + protocolFee;
+  const recipientReceives = grossAmount - protocolFee;
 
   const handleMax = () => {
     setAmount(currentBalance.toString());
@@ -183,8 +184,8 @@ export default function TransferView() {
             </div>
             <div className="h-px bg-white/5 my-1" />
             <div className="flex justify-between items-center">
-              <span className="text-xs font-black text-velo-cyan uppercase tracking-wider">Total Deducted</span>
-              <span className="text-sm font-black text-white">{totalDeducted.toFixed(2)} {selectedToken.symbol} + fees</span>
+              <span className="text-xs font-black text-velo-cyan uppercase tracking-wider">Recipient Receives</span>
+              <span className="text-sm font-black text-white">{recipientReceives.toFixed(2)} {selectedToken.symbol}</span>
             </div>
           </div>
 
@@ -239,9 +240,9 @@ export default function TransferView() {
                       <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Protocol Fee</p>
                       <p className="text-xs font-bold text-gray-300">{protocolFee.toFixed(4)} {selectedToken.symbol}</p>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Network Fee</p>
-                      <p className="text-xs font-bold text-gray-300">~{networkFee} HBAR</p>
+                    <div className="space-y-1 text-right">
+                      <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Net to Recipient</p>
+                      <p className="text-xs font-bold text-velo-cyan">{recipientReceives.toFixed(4)} {selectedToken.symbol}</p>
                     </div>
                   </div>
                 </div>
