@@ -101,20 +101,23 @@ export default function ProfileView() {
       setIsLoadingActivity(true);
 
       try {
-        // 1. Fetch real prices from SaucerSwap (Defensive)
-        let priceMap = new Map();
+        // 1. Fetch real prices and icons from SaucerSwap (Defensive)
+        let tokenDataMap = new Map();
         try {
           const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
           if (saucerResponse.ok) {
             const saucerTokens = await saucerResponse.json();
             saucerTokens.forEach((t: any) => {
-              if (t.symbol && t.priceUsd) {
-                priceMap.set(t.symbol, t.priceUsd);
+              if (t.symbol) {
+                tokenDataMap.set(t.symbol, {
+                  price: t.priceUsd || 0,
+                  icon: t.icon ? `https://www.saucerswap.finance${t.icon}` : null
+                });
               }
             });
           }
-        } catch (priceError) {
-          console.error("SaucerSwap pricing fetch failed, defaulting to $0:", priceError);
+        } catch (dataError) {
+          console.error("SaucerSwap data fetch failed, defaulting to $0:", dataError);
         }
 
         // 2. Fetch Balances
@@ -123,15 +126,15 @@ export default function ProfileView() {
           const balData = await balRes.json();
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
-          const hbarPrice = priceMap.get('WHBAR') || priceMap.get('HBAR') || 0.08;
+          const hbarData = tokenDataMap.get('WHBAR') || tokenDataMap.get('HBAR') || { price: 0.08, icon: 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' };
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
               name: 'Hedera', 
               ticker: 'HBAR', 
               balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
-              value: `$${(hbarBalValue * hbarPrice).toFixed(2)}`, 
-              icon: 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' 
+              value: `$${(hbarBalValue * hbarData.price).toFixed(2)}`, 
+              icon: hbarData.icon || 'https://cryptologos.cc/logos/hedera-hashgraph-hbar-logo.png' 
             }
           ];
 
@@ -153,15 +156,15 @@ export default function ProfileView() {
                   const rawSymbol = tokenInfo.symbol || 'UNKNOWN';
                   const cleanSymbol = rawSymbol.replace('(Mock)', '').trim();
                   
-                  const tokenPrice = priceMap.get(cleanSymbol) || 0;
-                  const calculatedUsdValue = trueBalance * parseFloat(tokenPrice.toString());
+                  const saucerData = tokenDataMap.get(cleanSymbol) || { price: 0, icon: null };
+                  const calculatedUsdValue = trueBalance * parseFloat(saucerData.price.toString());
 
                   return {
                     name: tokenInfo.name || `Token ${token.token_id.split('.').pop()}`,
                     ticker: rawSymbol,
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
                     value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
-                    icon: "/logov.png"
+                    icon: saucerData.icon || "/logov.png"
                   };
                 } catch (error) {
                   console.error(`Failed to process token ${token.token_id}:`, error);
@@ -382,7 +385,16 @@ export default function ProfileView() {
                     ) : portfolio.map((token) => (
                       <div key={token.ticker} className="flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 hover:border-velo-cyan/20 transition-all group">
                         <div className="flex items-center gap-4">
-                          <img src={token.icon} className="w-8 h-8 object-contain" alt="" />
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center p-1.5 group-hover:border-velo-cyan/30 transition-all">
+                            <img 
+                              src={token.icon || '/logov.png'} 
+                              alt={`${token.ticker} logo`} 
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src = '/logov.png';
+                              }}
+                            />
+                          </div>
                           <div>
                             <p className="text-sm font-bold text-white">{token.name}</p>
                             <p className="text-[10px] text-gray-500 uppercase tracking-widest">{token.ticker}</p>
