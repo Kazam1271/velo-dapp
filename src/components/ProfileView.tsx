@@ -233,10 +233,10 @@ export default function ProfileView() {
               } else if (userTokenChanges.length >= 2) {
                 actionType = 'swap';
                 actionLabel = 'Swapped Assets';
-              } else if (userHbarChange > 0 || userTokenChanges.some(tf => tf.amount > 0)) {
+              } else if (userHbarChange > 0 || userTokenChanges.some((tf: any) => tf.amount > 0)) {
                 actionType = 'receive';
                 actionLabel = 'Received Assets';
-              } else if (userHbarChange < 0 || userTokenChanges.some(tf => tf.amount < 0)) {
+              } else if (userHbarChange < 0 || userTokenChanges.some((tf: any) => tf.amount < 0)) {
                 actionType = 'sent';
                 actionLabel = 'Sent Assets';
               }
