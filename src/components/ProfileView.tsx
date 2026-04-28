@@ -24,9 +24,7 @@ import {
 import Image from "next/image";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { toast } from "sonner";
-
-
-
+import { supabase } from "@/lib/supabase";
 interface TokenBalance {
   name: string;
   ticker: string;
@@ -77,11 +75,28 @@ export default function ProfileView() {
         const id = 'V-' + window.btoa(accountId).substring(0, 8).toUpperCase();
         setVeloId(id);
 
-        // Load persisted profile
-        const savedUsername = localStorage.getItem(`velo_username_${accountId}`);
-        const savedAvatar = localStorage.getItem(`avatar_${accountId}`);
-        if (savedUsername) setUsername(savedUsername);
-        if (savedAvatar) setAvatarUrl(savedAvatar);
+        // Fetch persisted profile from Supabase
+        const fetchProfile = async () => {
+          try {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('velo_id, avatar_url')
+              .eq('wallet_id', accountId)
+              .single();
+            
+            if (data) {
+              if (data.velo_id) setUsername(data.velo_id);
+              if (data.avatar_url) setAvatarUrl(data.avatar_url);
+            } else if (error && error.code !== 'PGRST116') {
+              // Ignore not found error, log others
+              console.error("Supabase fetch error:", error);
+            }
+          } catch (err) {
+            console.error("Error fetching profile from Supabase:", err);
+          }
+        };
+
+        fetchProfile();
       } catch (e) {
         setVeloId('V-IDENTITY');
       }
@@ -335,12 +350,19 @@ export default function ProfileView() {
         const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
         const ipfsUrl = `${gatewayUrl}${data.IpfsHash}`;
         
-        // 5. Update state and save the permanent link to local storage
+        // 5. Update state and save the permanent link to Supabase
         setAvatarUrl(ipfsUrl);
         if (accountId) {
-          localStorage.setItem(`avatar_${accountId}`, ipfsUrl);
+          try {
+            await supabase.from('profiles').upsert({ 
+              wallet_id: accountId, 
+              avatar_url: ipfsUrl 
+            }, { onConflict: 'wallet_id' });
+          } catch (err) {
+            console.error("Error saving avatar to Supabase:", err);
+          }
         }
-        toast.success("Profile picture saved to IPFS!");
+        toast.success("Profile picture saved globally!");
         console.log("Successfully pinned to IPFS:", ipfsUrl);
       } else {
         throw new Error(data.error || "Upload failed");
@@ -353,12 +375,20 @@ export default function ProfileView() {
     }
   };
 
-  const handleSaveUsername = () => {
+  const handleSaveUsername = async () => {
     setUsername(tempUsername);
     setIsEditing(false);
     if (accountId) {
-      localStorage.setItem(`velo_username_${accountId}`, tempUsername);
-      toast.success("Username saved!");
+      try {
+        await supabase.from('profiles').upsert({ 
+          wallet_id: accountId, 
+          velo_id: tempUsername 
+        }, { onConflict: 'wallet_id' });
+        toast.success("Username saved globally!");
+      } catch (err) {
+        console.error("Error saving username to Supabase:", err);
+        toast.error("Failed to save username");
+      }
     }
   };
 

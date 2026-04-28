@@ -18,6 +18,7 @@ import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
+import { supabase } from "@/lib/supabase";
 
 export default function TransferView() {
   const { pairingData } = useHashConnect();
@@ -58,38 +59,26 @@ export default function TransferView() {
         setIsResolving(false);
         return;
       }
-      // Check 2: Local Storage Mock
+      // Check 2: Supabase Global Profile Lookup
       try {
-        let foundId: string | null = null;
-        for (let i = 0; i < localStorage.length; i++) {
-          const key = localStorage.key(i);
-          if (key && key.startsWith("velo_username_")) {
-            const accId = key.replace("velo_username_", "");
-            const storedUsername = localStorage.getItem(key);
-            let veloId = "";
-            try {
-              veloId = "V-" + window.btoa(accId).substring(0, 8).toUpperCase();
-            } catch (e) {}
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('wallet_id')
+          .ilike('velo_id', input) // Case-insensitive match
+          .single();
 
-            if (
-              storedUsername?.toLowerCase() === input.toLowerCase() ||
-              veloId.toLowerCase() === input.toLowerCase()
-            ) {
-              console.log(`[Resolver] Found match: ${storedUsername} -> ${accId}`);
-              foundId = accId;
-              break;
-            }
-          }
-        }
-
-        if (foundId) {
-          setResolvedAddress(foundId);
+        if (data && data.wallet_id) {
+          console.log(`[Resolver] Found match in Supabase: ${input} -> ${data.wallet_id}`);
+          setResolvedAddress(data.wallet_id);
         } else {
-          console.log(`[Resolver] No match found in localStorage for ${input}`);
+          console.log(`[Resolver] No match found in Supabase for ${input}`);
+          if (error && error.code !== 'PGRST116') {
+             console.error("[Resolver] Supabase error:", error);
+          }
           setResolveError("Invalid address or Velo ID not found");
         }
       } catch (error) {
-        console.error("[Resolver] Error parsing localStorage:", error);
+        console.error("[Resolver] Error querying Supabase:", error);
         setResolveError("Failed to resolve destination");
       }
 
