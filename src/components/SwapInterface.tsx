@@ -26,47 +26,17 @@ import {
 } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
-// Constants & ABI
+// Constants
 // ─────────────────────────────────────────────────────────────────
-const SAUCER_ROUTER_V2_NATIVE = "0.0.1414040";
-const SAUCER_ROUTER_V2_EVM = "0x00000000000000000000000000000000003c37ea";
-const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
-
-// Mock Testnet WHBAR token and its underlying ERC-20/HTS contract
 const MOCK_WHBAR_TOKEN_ID = "0.0.8735222";
-const MOCK_WHBAR_CONTRACT_ID = "0.0.8735222"; // The token IS the contract on this mock setup
-
-// ─────────────────────────────────────────────────────────────────
-// Helper: Price Formatting
-// ─────────────────────────────────────────────────────────────────
-const getTokenPriceUsd = (symbol: string, prices: any) => {
-  const s = symbol.toLowerCase();
-  if (s === "hbar") return prices.hbar || 0.09;
-  if (s === "velo") return prices.velo || 1.0;
-  if (s === "bonzo") return prices.bonzo || 0.02;
-  if (s === "sauce") return prices.sauce || 0.06;
-  if (s === "pack") return prices.pack || 0.05;
-  if (s === "usdc" || s === "usdt") return 1.0;
-  return 0;
-};
+const TREASURY_ID = "0.0.8642596";
 
 // ─────────────────────────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
   const { hashconnect, state, pairingData, isConnected, balance, isRefreshingBalance } = useHashConnect();
-  
-  // Derive address as per mission requirements
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
-
-  useEffect(() => {
-    if (!isConnected || !userAddress) {
-      setPayAmount("");
-      setReceiveAmount("");
-      setPayUsd("0.00");
-      setReceiveUsd("0.00");
-    }
-  }, [isConnected, userAddress]);
 
   const [isSwapping, setIsSwapping] = useState(false);
   const [payAmount, setPayAmount] = useState("");
@@ -87,6 +57,132 @@ export default function SwapInterface() {
     if (recvToken.tokenId === "NATIVE") return true;
     return liveBalances[recvToken.tokenId] !== undefined;
   }, [recvToken, liveBalances]);
+
+  const isWrapPair = payToken.tokenId === "NATIVE" && recvToken.tokenId === MOCK_WHBAR_TOKEN_ID;
+
+  // ── Sync Balances on Connect ──
+  useEffect(() => {
+    if (!isConnected || !userAddress) {
+      setPayAmount("");
+      setReceiveAmount("");
+    }
+  }, [isConnected, userAddress]);
+
+  // ── Quote Engine ──
+  useEffect(() => {
+    const amount = parseFloat(payAmount);
+    if (!payAmount || isNaN(amount) || amount <= 0) {
+      setReceiveAmount("");
+      setPayUsd("0.00");
+      setReceiveUsd("0.00");
+      setIsQuoting(false);
+      return;
+    }
+
+    setIsQuoting(true);
+    const handler = setTimeout(async () => {
+      try {
+        const response = await fetch("/api/get-quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            tokenInId: payToken.tokenId,
+            tokenOutId: recvToken.tokenId,
+            amountIn: amount
+          })
+        });
+        const result = await response.json();
+        if (result.success) {
+          setReceiveAmount(result.amountOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
+          setPayUsd((amount * result.priceIn).toFixed(2));
+          setReceiveUsd((result.amountOut * result.priceOut).toFixed(2));
+        }
+      } catch (err) {
+        console.error("Quoting failed:", err);
+      } finally {
+        setIsQuoting(false);
+      }
+    }, 600);
+    return () => clearTimeout(handler);
+  }, [payAmount, payToken, recvToken]);
+
+  // ── Handlers ──
+  const handleSwap = async () => {
+    if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
+
+    setIsSwapping(true);
+    const toastId = toast.loading("Initializing Treasury Brokerage...");
+
+    try {
+      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
+
+      // 1. Association Check
+      if (!isAssociated && recvToken.tokenId !== "NATIVE") {
+        toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(userAddress))
+          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
+        
+        await (associateTx as any).freezeWithSigner(signer);
+        await (associateTx as any).executeWithSigner(signer);
+        
+        toast.success(`${recvToken.symbol} Associated!`, { id: toastId });
+        refreshBalances();
+      }
+
+      // 2. Step 1: Deposit to Treasury
+      toast.loading(`Depositing ${payToken.symbol} to Velo Treasury...`, { id: toastId });
+      let depositTx = new TransferTransaction();
+
+      if (payToken.tokenId === "NATIVE") {
+        depositTx.addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-parseFloat(payAmount)))
+                 .addHbarTransfer(AccountId.fromString(TREASURY_ID), new Hbar(parseFloat(payAmount)));
+      } else {
+        const decimals = (payToken.tokenId === MOCK_WHBAR_TOKEN_ID || payToken.tokenId === "0.0.8725045") ? 8 : 6;
+        const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
+        depositTx.addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(userAddress), -amountTiny)
+                 .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(TREASURY_ID), amountTiny);
+      }
+
+      await (depositTx as any).freezeWithSigner(signer);
+      const depositResult = await (depositTx as any).executeWithSigner(signer);
+      
+      if (!depositResult || !depositResult.transactionId) throw new Error("Deposit failed.");
+
+      // 3. Step 2: Backend Payout
+      toast.loading("Verifying deposit & processing payout...", { id: toastId });
+      const payoutRes = await fetch("/api/broker-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          transactionId: depositResult.transactionId.toString(),
+          accountId: userAddress,
+          targetTokenId: recvToken.tokenId
+        })
+      });
+
+      const payoutData = await payoutRes.json();
+      if (!payoutRes.ok || !payoutData.success) throw new Error(payoutData.error || "Payout failed");
+
+      toast.success("Brokerage Swap Complete!", {
+        id: toastId,
+        description: `Your ${recvToken.symbol} has been sent by the Treasury.`,
+        action: {
+          label: "View Payout",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${payoutData.payoutTxId}`, "_blank")
+        }
+      });
+
+      setPayAmount("");
+      refreshBalances();
+
+    } catch (error: any) {
+      console.error("[Swap Error]:", error);
+      toast.error("Swap Failed", { id: toastId, description: error.message });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
 
   const handleClaimAirdrop = async () => {
     if (!isConnected || isClaiming || hasClaimed || !userAddress) return;
@@ -130,235 +226,6 @@ export default function SwapInterface() {
     }
   };
 
-  const isWrapPair = payToken.tokenId === "NATIVE" && recvToken.tokenId === MOCK_WHBAR_TOKEN_ID;
-
-  useEffect(() => {
-    const amount = parseFloat(payAmount);
-    if (!payAmount || isNaN(amount) || amount <= 0) {
-      setReceiveAmount("");
-      setPayUsd("0.00");
-      setReceiveUsd("0.00");
-      setIsQuoting(false);
-      return;
-    }
-
-    const payPrice = getTokenPriceUsd(payToken.symbol, prices);
-    setPayUsd((amount * payPrice).toFixed(2));
-
-    if (isWrapPair) {
-      setReceiveAmount(amount.toFixed(8));
-      setReceiveUsd((amount * payPrice).toFixed(2));
-      setIsQuoting(false);
-      return;
-    }
-
-    setIsQuoting(true);
-    const handler = setTimeout(async () => {
-      try {
-        const response = await fetch("/api/get-quote", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            tokenInId: payToken.tokenId,
-            tokenOutId: recvToken.tokenId,
-            amountIn: amount
-          })
-        });
-        const result = await response.json();
-        if (result.success) {
-          setReceiveAmount(result.amountOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
-          setPayUsd((amount * result.priceIn).toFixed(2));
-          setReceiveUsd((result.amountOut * result.priceOut).toFixed(2));
-        } else {
-          // Fallback logic
-          const p1 = getTokenPriceUsd(payToken.symbol, prices);
-          const p2 = getTokenPriceUsd(recvToken.symbol, prices);
-          if (p1 > 0 && p2 > 0) {
-            const final = (amount * p1) / p2;
-            setReceiveAmount(final.toFixed(recvToken.decimals > 6 ? 6 : 4));
-            setPayUsd((amount * p1).toFixed(2));
-            setReceiveUsd((final * p2).toFixed(2));
-          }
-        }
-      } catch (err) {
-        console.error("Quoting failed:", err);
-      } finally {
-        setIsQuoting(false);
-      }
-    }, 600);
-    return () => clearTimeout(handler);
-  }, [payAmount, payToken, recvToken, prices, isWrapPair]);
-
-  const handleWrap = async () => {
-    const amount = parseFloat(payAmount);
-    if (!isConnected || !userAddress || !hashconnect || isNaN(amount) || amount <= 0) return;
-
-    setIsSwapping(true);
-    const toastId = toast.loading("Preparing HBAR wrap...");
-    try {
-      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
-
-      if (!isAssociated) {
-        toast.loading("Associating WHBAR token...", { id: toastId });
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(userAddress))
-          .setTokenIds([TokenId.fromString(MOCK_WHBAR_TOKEN_ID)]);
-        await (associateTx as any).freezeWithSigner(signer);
-        await (associateTx as any).executeWithSigner(signer);
-        toast.success("WHBAR Associated!", { id: toastId });
-        refreshBalances();
-      }
-
-      toast.loading("Sending HBAR to Treasury...", { id: toastId });
-      const hbarTx = new TransferTransaction()
-        .addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-amount))
-        .addHbarTransfer(AccountId.fromString("0.0.8642596"), new Hbar(amount));
-
-      await (hbarTx as any).freezeWithSigner(signer);
-      const hbarResult = await (hbarTx as any).executeWithSigner(signer);
-
-      toast.loading("Verifying HBAR deposit...", { id: toastId });
-      
-      const response = await fetch("/api/exchange-whbar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transactionId: hbarResult.transactionId.toString(),
-          userAddress: userAddress,
-          amount: amount
-        })
-      });
-
-      const exchangeData = await response.json();
-      if (!response.ok) throw new Error(exchangeData.message || "Exchange failed");
-
-      toast.success("Wrap Successful!", {
-        id: toastId,
-        description: `Sent ${amount} HBAR \u2192 Received ${amount} WHBAR`,
-        action: {
-          label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hbarResult?.transactionId}`, "_blank")
-        }
-      });
-      setPayAmount("");
-      refreshBalances();
-      
-      setTimeout(() => {
-        refreshBalances();
-      }, 2000);
-    } catch (error: any) {
-      console.error("[Wrap] Error:", error);
-      toast.error("Wrap Failed", { id: toastId, description: error.message });
-    } finally {
-      setIsSwapping(false);
-    }
-  };
-
-  const handleSwap = async () => {
-    if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
-
-    setIsSwapping(true);
-    const toastId = toast.loading("Requesting Quote from Oracle...");
-
-    try {
-      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
-
-      if (!isAssociated && recvToken.tokenId !== "NATIVE") {
-        toast.loading(`Associating ${recvToken.symbol}...`, { id: toastId });
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(userAddress))
-          .setTokenIds([TokenId.fromString(recvToken.tokenId)]);
-        
-        await (associateTx as any).freezeWithSigner(signer);
-        await (associateTx as any).executeWithSigner(signer);
-        
-        toast.success(`${recvToken.symbol} Associated!`, { id: toastId });
-        refreshBalances();
-      }
-
-      if (payToken.tokenId !== "NATIVE") {
-        toast.loading(`Sending ${payToken.symbol} to Treasury...`, { id: toastId });
-        
-        const decimals = (payToken.tokenId === "0.0.8735222" || payToken.tokenId === "0.0.8725045") ? 8 : 6;
-        const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
-        const treasuryId = "0.0.8642596";
-
-        const transferTx = new TransferTransaction()
-          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(userAddress), -amountTiny)
-          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(treasuryId), amountTiny);
-
-        await (transferTx as any).freezeWithSigner(signer);
-        const signedTransfer = await (transferTx as any).executeWithSigner(signer);
-        
-        if (!signedTransfer || !signedTransfer.transactionId) throw new Error("Transfer failed or was cancelled.");
-
-        toast.loading("Verifying transfer and processing HBAR payout...", { id: toastId });
-        const payoutRes = await fetch("/api/broker-payout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            transactionId: signedTransfer.transactionId.toString(),
-            accountId: userAddress
-          })
-        });
-
-        const payoutResult = await payoutRes.json();
-        if (!payoutRes.ok || !payoutResult.success) throw new Error(payoutResult.error || "Payout failed");
-
-        toast.success("HBAR Received!", {
-          id: toastId,
-          description: `Successfully sold ${payAmount} ${payToken.symbol} for ${payoutResult.hbarAmount} HBAR.`,
-          action: {
-            label: "View Payout",
-            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${payoutResult.transactionId}`, "_blank")
-          }
-        });
-
-      } else {
-        toast.loading("Building Atomic Transaction...", { id: toastId });
-        const response = await fetch("/api/build-swap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            amountIn: parseFloat(payAmount),
-            tokenInId: payToken.tokenId,
-            tokenOutId: recvToken.tokenId,
-            userAddress: userAddress
-          })
-        });
-
-        const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || "Failed to build transaction");
-
-        toast.loading("Waiting for your signature...", { id: toastId });
-        const tx = Transaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
-        const executionResult = await (tx as any).executeWithSigner(signer);
-        
-        if (executionResult && executionResult.transactionId) {
-          toast.success("Swap Complete!", {
-            id: toastId,
-            description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
-            action: {
-              label: "View HashScan",
-              onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
-            }
-          });
-        } else {
-          throw new Error(`Transaction failed with status: ${executionResult.status}`);
-        }
-      }
-
-      setPayAmount("");
-      refreshBalances();
-
-    } catch (error: any) {
-      console.error("[Swap] Brokerage Error:", error);
-      toast.error("Swap Failed", { id: toastId, description: error.message });
-    } finally {
-      setIsSwapping(false);
-    }
-  };
-
   const handleFlip = () => {
     if (isSwapping) return;
     const oldP = payToken;
@@ -374,9 +241,7 @@ export default function SwapInterface() {
   };
 
   const getTokenBalanceInfo = (token: Token) => {
-    if (token.tokenId === "NATIVE") {
-      return { value: balance, isLoading: isRefreshingBalance };
-    }
+    if (token.tokenId === "NATIVE") return { value: balance, isLoading: isRefreshingBalance };
     const val = liveBalances[token.tokenId];
     return { value: val ?? "0.00", isLoading: isFetchingBalances };
   };
@@ -416,7 +281,7 @@ export default function SwapInterface() {
             disabled={isClaiming || hasClaimed}
             className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all ${hasClaimed ? "bg-velo-green/20 text-velo-green" : "bg-velo-cyan text-[#0b0e14] hover:bg-cyan-400"}`}
           >
-            {hasClaimed ? "✓ CLAIMED" : "CLAIM"}
+            {hasClaimed ? "\u2713 CLAIMED" : "CLAIM"}
           </button>
         </motion.div>
       )}
@@ -481,19 +346,23 @@ export default function SwapInterface() {
           </div>
         </div>
 
-        {/* Breakdown for Sells */}
-        {payToken.tokenId !== "NATIVE" && payAmount && parseFloat(payAmount) > 0 && (
+        {/* Details Breakdown */}
+        {payAmount && parseFloat(payAmount) > 0 && (
           <div className="bg-black/40 border border-white/5 rounded-2xl p-4 mb-4 space-y-2">
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Brokerage Fee</span>
               <span className="text-velo-cyan">0.25 HBAR</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-gray-500">Swap Route</span>
+              <span className="text-white">Treasury Managed</span>
             </div>
           </div>
         )}
 
         {/* Action Button */}
         <button
-          onClick={isWrapPair ? handleWrap : handleSwap}
+          onClick={handleSwap}
           disabled={!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0}
           className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
         >
@@ -503,11 +372,7 @@ export default function SwapInterface() {
               ? "CONNECT WALLET"
               : !payAmount || parseFloat(payAmount) <= 0
                 ? "Enter an amount"
-                : payToken.tokenId !== "NATIVE"
-                  ? `SELL ${payToken.symbol} FOR HBAR`
-                  : isWrapPair
-                    ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount} HBAR`)
-                    : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
+                : `SWAP VIA BROKERAGE`
           }
         </button>
 
