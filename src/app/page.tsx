@@ -175,7 +175,7 @@ export default function LandingPage() {
               <a href="https://mail.google.com/mail/?view=cm&to=velo.dapp@gmail.com" target="_blank" rel="noopener noreferrer" title="Contact us" className="text-gray-500 hover:text-violet-400 hover:drop-shadow-[0_0_8px_rgba(167,139,250,0.8)] transition-all">
                 <MessageSquare size={20} />
               </a>
-              <a href="#" className="text-gray-500 hover:text-velo-green hover:drop-shadow-[0_0_8px_rgba(34,197,94,0.8)] transition-all">
+              <a href="/Whitepaper.pdf" target="_blank" rel="noopener noreferrer" title="View Whitepaper" className="text-gray-500 hover:text-velo-green hover:drop-shadow-[0_0_8px_rgba(34,197,94,0.8)] transition-all">
                 <FileText size={20} />
               </a>
             </div>
