@@ -34,7 +34,7 @@ const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1
 
 // Mock Testnet WHBAR token and its underlying ERC-20/HTS contract
 const MOCK_WHBAR_TOKEN_ID = "0.0.8735222";
-const MOCK_WHBAR_CONTRACT_ID = "0.0.8735222"; // The token IS the contract on testnet
+const MOCK_WHBAR_CONTRACT_ID = "0.0.1505995"; // Correct WHBAR Contract ID for Testnet V2
 
 const ROUTER_V2_ABI = [
   {
@@ -236,6 +236,9 @@ export default function SwapInterface() {
         .setGas(100_000)
         .setFunction("deposit")
         .setPayableAmount(Hbar.fromTinybars(tinybars));
+
+      console.log(`[Wrap] TARGET CONTRACT: ${MOCK_WHBAR_CONTRACT_ID}`);
+      console.log(`[Wrap] PAYABLE AMOUNT: ${tinybars} tinybars`);
 
       await (wrapTx as any).freezeWithSigner(signer);
       const result = await (wrapTx as any).executeWithSigner(signer);
@@ -478,7 +481,7 @@ export default function SwapInterface() {
               : !payAmount || parseFloat(payAmount) <= 0
                 ? "Enter an amount"
                 : isWrapPair
-                  ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount} HBAR → WHBAR`)
+                  ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount} HBAR`)
                   : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
           }
         </button>
