@@ -153,7 +153,7 @@ export default function TransferView() {
       // @ts-ignore
       const res = await frozenTx.executeWithSigner(signer);
 
-      if (res && res.receipt) {
+      if (res) {
         toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
       } else {
         toast.success(`Transfer initiated! Check your wallet.`);
