@@ -252,7 +252,11 @@ export default function SwapInterface() {
         }
       });
       setPayAmount("");
-      refreshBalances();
+      
+      // 3. Wait 2 seconds for indexer and refresh
+      setTimeout(() => {
+        refreshBalances();
+      }, 2000);
     } catch (error: any) {
       console.error("[Wrap] Error:", error);
       toast.error("Wrap Failed", { id: toastId, description: error.message });
