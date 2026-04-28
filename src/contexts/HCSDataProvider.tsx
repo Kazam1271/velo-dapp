@@ -20,6 +20,7 @@ export interface FeedItem {
 
 interface HCSDataContextType {
   feed: FeedItem[];
+  pushAction: (action: string, token: string, amount: string) => void;
 }
 
 const HCSDataContext = createContext<HCSDataContextType | undefined>(undefined);
@@ -82,8 +83,26 @@ export function HCSDataProvider({ children }: { children: React.ReactNode }) {
     return () => clearInterval(interval);
   }, []);
 
+  const pushAction = (action: string, token: string, amount: string) => {
+    setFeed((prev) => {
+      const newItem: FeedItem = {
+        id: `${Date.now()}-${Math.random()}`,
+        timestamp: Date.now(),
+        action,
+        amount1: amount,
+        token1: token,
+        preps: "to",
+        amount2: "",
+        token2: "Treasury",
+        txHash: generateTxHash(),
+        account: "0.0.You",
+      };
+      return [newItem, ...prev].slice(0, 10);
+    });
+  };
+
   return (
-    <HCSDataContext.Provider value={{ feed }}>
+    <HCSDataContext.Provider value={{ feed, pushAction }}>
       {children}
     </HCSDataContext.Provider>
   );
