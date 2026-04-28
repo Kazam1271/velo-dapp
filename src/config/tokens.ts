@@ -68,7 +68,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "PACK",
     name: "HashPack Token",
-    logoURI: "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/pack.png",
+    logoURI: "/pack.png",
     decimals: 6,
     tokenId: "0.0.8735151",
     mainnetId: "0.0.4792777",
