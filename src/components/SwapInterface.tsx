@@ -298,44 +298,84 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2. Request Backend to BUILD and CO-SIGN the transaction
-      toast.loading("Building Atomic Transaction...", { id: toastId });
-      const response = await fetch("/api/build-swap", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          amountIn: parseFloat(payAmount),
-          tokenInId: payToken.tokenId,
-          tokenOutId: recvToken.tokenId,
-          userAddress: userAddress
-        })
-      });
+      // CASE A: TOKEN -> HBAR (Brokerage Sell Flow)
+      if (payToken.tokenId !== "NATIVE") {
+        toast.loading(`Sending ${payToken.symbol} to Treasury...`, { id: toastId });
+        
+        const decimals = (payToken.tokenId === "0.0.8735222" || payToken.tokenId === "0.0.8725045") ? 8 : 6;
+        const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
+        const treasuryId = "0.0.8642596"; // Treasury
 
-      const result = await response.json();
-      if (!response.ok || !result.success) throw new Error(result.error || "Failed to build transaction");
+        const transferTx = new TransferTransaction()
+          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(userAddress), -amountTiny)
+          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(treasuryId), amountTiny);
 
-      // 3. Reconstruct and Execute via HashConnect
-      toast.loading("Waiting for your signature...", { id: toastId });
-      const tx = Transaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
-      
-      // Use the correct Hiero SDK syntax: execute the transaction using the signer
-      const executionResult = await (tx as any).executeWithSigner(signer);
-      
-      if (executionResult && executionResult.transactionId) {
-        toast.success("Brokerage Swap Complete!", {
+        await (transferTx as any).freezeWithSigner(signer);
+        const signedTransfer = await (transferTx as any).executeWithSigner(signer);
+        
+        if (!signedTransfer || !signedTransfer.transactionId) throw new Error("Transfer failed or was cancelled.");
+
+        // Step 2: Request Payout from Backend
+        toast.loading("Verifying transfer and processing HBAR payout...", { id: toastId });
+        const payoutRes = await fetch("/api/broker-payout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            transactionId: signedTransfer.transactionId.toString(),
+            accountId: userAddress
+          })
+        });
+
+        const payoutResult = await payoutRes.json();
+        if (!payoutRes.ok || !payoutResult.success) throw new Error(payoutResult.error || "Payout failed");
+
+        toast.success("HBAR Received!", {
           id: toastId,
-          description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
+          description: `Successfully sold ${payAmount} ${payToken.symbol} for ${payoutResult.hbarAmount} HBAR.`,
           action: {
-            label: "View HashScan",
-            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
+            label: "View Payout",
+            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${payoutResult.transactionId}`, "_blank")
           }
         });
+
+      } 
+      // CASE B: HBAR -> TOKEN (Atomic Swap Flow)
+      else {
+        toast.loading("Building Atomic Transaction...", { id: toastId });
+        const response = await fetch("/api/build-swap", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            amountIn: parseFloat(payAmount),
+            tokenInId: payToken.tokenId,
+            tokenOutId: recvToken.tokenId,
+            userAddress: userAddress
+          })
+        });
+
+        const result = await response.json();
+        if (!response.ok || !result.success) throw new Error(result.error || "Failed to build transaction");
+
+        toast.loading("Waiting for your signature...", { id: toastId });
+        const tx = Transaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
+        const executionResult = await (tx as any).executeWithSigner(signer);
         
-        setPayAmount("");
-        refreshBalances();
-      } else {
-        throw new Error(`Transaction failed with status: ${executionResult.status}`);
+        if (executionResult && executionResult.transactionId) {
+          toast.success("Swap Complete!", {
+            id: toastId,
+            description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
+            action: {
+              label: "View HashScan",
+              onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
+            }
+          });
+        } else {
+          throw new Error(`Transaction failed with status: ${executionResult.status}`);
+        }
       }
+
+      setPayAmount("");
+      refreshBalances();
 
     } catch (error: any) {
       console.error("[Swap] Brokerage Error:", error);
@@ -473,6 +513,52 @@ export default function SwapInterface() {
               onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} 
             />
           </div>
+        {/* ── Swap Button ───────────────────────────────────── */}
+        <div className="space-y-4">
+          {payToken.tokenId !== "NATIVE" && payAmount && parseFloat(payAmount) > 0 && (
+            <div className="bg-black/40 border border-white/5 rounded-2xl p-4 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Est. Payout</span>
+                <span className="text-white">Calculating...</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Brokerage Fee</span>
+                <span className="text-velo-cyan">0.25 HBAR</span>
+              </div>
+              <div className="pt-2 border-t border-white/5 flex justify-between text-sm font-bold">
+                <span className="text-white">Total Expected</span>
+                <span className="text-velo-green">~ HBAR</span>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={handleSwap}
+            disabled={!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping}
+            className={`w-full py-5 rounded-[24px] font-black uppercase tracking-[0.2em] shadow-xl transition-all relative overflow-hidden group
+              ${!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping
+                ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+                : "bg-gradient-to-r from-velo-cyan to-velo-blue text-white hover:scale-[1.02] hover:shadow-cyan-500/20 active:scale-[0.98]"
+              }`}
+          >
+            {isSwapping ? (
+              <div className="flex items-center justify-center gap-3">
+                <Loader2 className="animate-spin" size={20} />
+                <span>Processing...</span>
+              </div>
+            ) : !isConnected ? (
+              "Connect Wallet"
+            ) : !payAmount || parseFloat(payAmount) <= 0 ? (
+              "Enter Amount"
+            ) : payToken.tokenId !== "NATIVE" ? (
+              `Sell ${payToken.symbol} for HBAR`
+            ) : (
+              "Swap Now"
+            )}
+            
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 pointer-events-none" />
+          </button>
+        </div>      </div>
           {receiveAmount && (
             <div className="text-xs text-gray-500 mt-1 px-1">
               ≈ ${receiveUsd} USD

@@ -3,6 +3,7 @@
 import { ArrowLeftRight, Droplets, Link as LinkIcon, Send, User } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { toast } from "sonner";
 
 const navItems = [
   { name: 'Swap', icon: ArrowLeftRight, href: '/' },
@@ -22,6 +23,26 @@ export default function BottomNav() {
           const Icon = item.icon;
           const isActive = pathname === item.href;
           
+          if (item.name === 'Bridge') {
+            return (
+              <button
+                key={item.href}
+                onClick={(e) => {
+                  e.preventDefault();
+                  toast.info("Not available now, launching on Mainnet!", {
+                    icon: "🚀"
+                  });
+                }}
+                className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl transition-all duration-300 relative group text-slate-500 opacity-50 cursor-not-allowed`}
+              >
+                <Icon size={22} className="transition-transform duration-300 group-hover:scale-105" strokeWidth={2} />
+                <span className="text-[10px] font-bold uppercase tracking-widest transition-all opacity-80 group-hover:opacity-100">
+                  {item.name}
+                </span>
+              </button>
+            );
+          }
+
           return (
             <Link 
               key={item.href}
