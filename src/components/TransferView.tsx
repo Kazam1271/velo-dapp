@@ -148,6 +148,7 @@ export default function TransferView() {
 
       // @ts-ignore - Bypass TS mismatch between @hiero-ledger/sdk versions
       const signer = hashconnect.getSigner(AccountId.fromString(accountId));
+      // @ts-ignore
       const frozenTx = await transaction.freezeWithSigner(signer);
       // @ts-ignore
       const res = await frozenTx.executeWithSigner(signer);
