@@ -327,6 +327,12 @@ export default function ProfileView() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Guard: don't allow upload until the Velo ID has been loaded from Supabase
+    if (!accountId || !veloId || veloId === 'Not Connected') {
+      toast.error("Please wait for your profile to fully load before uploading.");
+      return;
+    }
+
     try {
       // 1. Create a temporary local preview so the UI feels fast
       const objectUrl = URL.createObjectURL(file);
@@ -349,25 +355,27 @@ export default function ProfileView() {
         const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
         const ipfsUrl = `${gatewayUrl}${data.IpfsHash}`;
         
-        // 5. Save to Supabase immediately
-        if (accountId) {
-          const { error: dbError } = await supabase
-            .from('profiles')
-            .upsert({ 
-              wallet_id: accountId, 
-              avatar_url: ipfsUrl 
-            }, { onConflict: 'wallet_id' });
+        // 5. Save to Supabase — include velo_id to satisfy any NOT NULL constraint
+        console.log("Attempting to link image to profile for:", accountId, "veloId:", veloId);
 
-          if (dbError) {
-            console.error("Supabase Save Error:", dbError);
-            toast.error("Image uploaded, but failed to link to profile.");
-            return;
-          }
+        const { error: dbError } = await supabase
+          .from('profiles')
+          .upsert({ 
+            wallet_id: accountId, 
+            avatar_url: ipfsUrl,
+            velo_id: veloId,
+          }, { onConflict: 'wallet_id' });
+
+        if (dbError) {
+          console.error("Supabase Link Error Details:", dbError.message, dbError.details);
+          toast.error(`Link failed: ${dbError.message}`);
+          setAvatarUrl(null);
+          return;
         }
         
         // 6. Update the local UI state ONLY after DB success
         setAvatarUrl(ipfsUrl);
-        toast.success("Profile picture saved globally!");
+        toast.success("Profile updated!");
         console.log("Successfully pinned and persisted:", ipfsUrl);
       } else {
         throw new Error(data.error || "Upload failed");
