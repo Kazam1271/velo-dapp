@@ -28,6 +28,12 @@ export default function TransferView() {
   const [selectedToken, setSelectedToken] = useState<Token>(TOKEN_LIST[0]);
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  
+  // Smart Resolver States
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+
   const { balance: hbarBalance } = useHederaBalance(accountId);
   const { liveBalances } = useTokenBalances(accountId);
 
