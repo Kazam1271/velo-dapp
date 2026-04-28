@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeftRight, Droplets, Link as LinkIcon, Send, User } from "lucide-react";
+import { ArrowLeftRight, Droplets, Link as LinkIcon, Send, User, Lock } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { toast } from "sonner";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 const navItems = [
   { name: 'Swap', icon: ArrowLeftRight, href: '/' },
   { name: 'Pools', icon: Droplets, href: '/pools' },
-  { name: 'Bridge', icon: LinkIcon, href: '/bridge' },
+  { name: 'Bridge', icon: LinkIcon, href: '/bridge', locked: true },
   { name: 'Transfer', icon: Send, href: '/transfer' },
   { name: 'Profile', icon: User, href: '/profile' }
 ];
@@ -23,20 +23,18 @@ export default function BottomNav() {
           const Icon = item.icon;
           const isActive = pathname === item.href;
           
-          if (item.name === 'Bridge') {
+          if (item.locked) {
             return (
-              <button
-                key={item.href}
-                onClick={(e) => {
-                  e.preventDefault();
-                  toast.info("Not available now, launching on Mainnet!", {
-                    icon: "🚀"
-                  });
-                }}
-                className={`flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl transition-all duration-300 relative group text-slate-500 opacity-50 cursor-not-allowed`}
+              <button 
+                key={item.name}
+                onClick={() => toast.info("Not available now, launching on Mainnet")}
+                className="flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl transition-all duration-300 relative group text-slate-700 blur-[1px] cursor-not-allowed grayscale"
               >
-                <Icon size={22} className="transition-transform duration-300 group-hover:scale-105" strokeWidth={2} />
-                <span className="text-[10px] font-bold uppercase tracking-widest transition-all opacity-80 group-hover:opacity-100">
+                <div className="relative">
+                  <Icon size={22} strokeWidth={2} />
+                  <Lock size={10} className="absolute -top-1 -right-1 text-slate-500" />
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">
                   {item.name}
                 </span>
               </button>

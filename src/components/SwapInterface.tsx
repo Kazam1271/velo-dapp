@@ -1,198 +1,275 @@
 "use client";
 
-import { useState, useMemo, useEffect, useRef } from "react";
-import { ArrowDown, Info, RefreshCw, TrendingUp, Loader2, ChevronDown } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
-import { 
-  TokenId, 
-  AccountId, 
-  TokenAssociateTransaction, 
-  TransferTransaction, 
-  Transaction,
-  Hbar
-} from "@hiero-ledger/sdk";
+import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw } from "lucide-react";
+import { useRef, useState, useEffect, useMemo } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
-import { toast } from "sonner";
+import { HashConnectConnectionState } from "hashconnect";
 import { TOKEN_LIST, Token } from "@/config/tokens";
-import { useHederaBalance } from "@/hooks/useHederaBalance";
+import { toast } from "sonner";
+import { Buffer } from "buffer";
+import { motion, AnimatePresence } from "framer-motion";
+import { ethers } from "ethers";
+import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
+import { usePriceFeed } from "@/hooks/usePriceFeed";
+import { useTokenBalances } from "@/hooks/useTokenBalances";
+import { 
+  Transaction,
+  TransferTransaction, 
+  Hbar, 
+  HbarUnit,
+  TransactionId, 
+  AccountId, 
+  TokenId,
+  TokenAssociateTransaction,
+  ContractExecuteTransaction,
+  ContractId
+} from "@hiero-ledger/sdk";
 
-// --- CONSTANTS ---
+// ─────────────────────────────────────────────────────────────────
+// Constants & ABI
+// ─────────────────────────────────────────────────────────────────
+const SAUCER_ROUTER_V2_NATIVE = "0.0.1414040";
+const SAUCER_ROUTER_V2_EVM = "0x00000000000000000000000000000000003c37ea";
+const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
+
+// Mock Testnet WHBAR token and its underlying ERC-20/HTS contract
 const MOCK_WHBAR_TOKEN_ID = "0.0.8735222";
-const TREASURY_ACCOUNT_ID = "0.0.8642596";
+const MOCK_WHBAR_CONTRACT_ID = "0.0.8735222"; // The token IS the contract on this mock setup
 
-export default function SwapInterface() {
-  const { isConnected, pairingData, hashconnect } = useHashConnect();
-  const userAddress = pairingData?.accountIds?.[0] || null;
-  const { balance, isLoading: isRefreshingBalance, refresh: refreshHbarBalance } = useHederaBalance(userAddress);
-
-  // States
-  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]); // HBAR
-  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[1]); // VELO
-  const [payAmount, setPayAmount] = useState("");
-  const [receiveAmount, setReceiveAmount] = useState("");
-  const [receiveUsd, setReceiveUsd] = useState("0.00");
-  const [isSwapping, setIsSwapping] = useState(false);
-  const [isQuoting, setIsQuoting] = useState(false);
-  const [liveBalances, setLiveBalances] = useState<Record<string, string>>({});
-  const [isFetchingBalances, setIsFetchingBalances] = useState(false);
-  const [isAssociated, setIsAssociated] = useState(true);
-
-  // Computed
-  const isWrapPair = useMemo(() => {
-    return (payToken.symbol === "HBAR" && recvToken.tokenId === MOCK_WHBAR_TOKEN_ID) ||
-           (payToken.tokenId === MOCK_WHBAR_TOKEN_ID && recvToken.symbol === "HBAR");
-  }, [payToken, recvToken]);
-
-  const isSellFlow = useMemo(() => {
-    return payToken.tokenId !== "NATIVE" && recvToken.tokenId === "NATIVE";
-  }, [payToken, recvToken]);
-
-  // --- Effects ---
-
-  // Refresh all balances
-  const refreshBalances = async () => {
-    if (!userAddress) return;
-    setIsFetchingBalances(true);
-    try {
-      refreshHbarBalance();
-      const res = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/balances?account.id=${userAddress}`);
-      if (res.ok) {
-        const data = await res.json();
-        const tokens = data.balances[0]?.tokens || [];
-        const balances: Record<string, string> = {};
-        tokens.forEach((t: any) => {
-          balances[t.token_id] = t.balance.toString();
-        });
-        setLiveBalances(balances);
+const ROUTER_V2_ABI = [
+  {
+    "inputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "tokenIn", "type": "address" },
+          { "internalType": "address", "name": "tokenOut", "type": "address" },
+          { "internalType": "uint24", "name": "fee", "type": "uint24" },
+          { "internalType": "address", "name": "recipient", "type": "address" },
+          { "internalType": "uint256", "name": "deadline", "type": "uint256" },
+          { "internalType": "uint256", "name": "amountIn", "type": "uint256" },
+          { "internalType": "uint256", "name": "amountOutMinimum", "type": "uint256" },
+          { "internalType": "uint160", "name": "sqrtPriceLimitX96", "type": "uint160" }
+        ],
+        "internalType": "struct IV3SwapRouter.ExactInputSingleParams",
+        "name": "params",
+        "type": "tuple"
       }
-    } catch (err) {
-      console.error("Failed to fetch token balances:", err);
-    } finally {
-      setIsFetchingBalances(false);
-    }
-  };
+    ],
+    "name": "exactInputSingle",
+    "outputs": [{ "internalType": "uint256", "name": "amountOut", "type": "uint256" }],
+    "stateMutability": "payable",
+    "type": "function"
+  }
+];
 
+// ─────────────────────────────────────────────────────────────────
+// Helper: Price Formatting
+// ─────────────────────────────────────────────────────────────────
+const getTokenPriceUsd = (symbol: string, prices: any) => {
+  const s = symbol.toLowerCase();
+  if (s === "hbar") return prices.hbar || 0.09;
+  if (s === "velo") return prices.velo || 1.0;
+  if (s === "bonzo") return prices.bonzo || 0.02;
+  if (s === "sauce") return prices.sauce || 0.06;
+  if (s === "pack") return prices.pack || 0.05;
+  if (s === "usdc" || s === "usdt") return 1.0;
+  return 0;
+};
+
+// ─────────────────────────────────────────────────────────────────
+// Main Component
+// ─────────────────────────────────────────────────────────────────
+export default function SwapInterface() {
+  const { hashconnect, state, pairingData, isConnected, balance, isRefreshingBalance } = useHashConnect();
+  
+  // Derive address as per mission requirements
+  const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
+
+  // ── Task 1: Phantom Balance Fix ──────────────────────────
   useEffect(() => {
-    if (isConnected && userAddress) {
-      refreshBalances();
+    if (!isConnected || !userAddress) {
+      setPayAmount("");
+      setReceiveAmount("");
+      setPayUsd("0.00");
+      setReceiveUsd("0.00");
+      // Note: HBAR balance and Token balances are cleared via HashConnectProvider 
+      // and useTokenBalances hook when userAddress becomes null.
     }
   }, [isConnected, userAddress]);
 
-  // Check Association
-  useEffect(() => {
-    if (!isConnected || !userAddress || recvToken.tokenId === "NATIVE") {
-      setIsAssociated(true);
-      return;
-    }
-    const check = async () => {
-      try {
-        const res = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/accounts/${userAddress}/tokens?token.id=${recvToken.tokenId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setIsAssociated(data.tokens && data.tokens.length > 0);
-        } else {
-          setIsAssociated(false);
-        }
-      } catch (err) {
-        setIsAssociated(false);
+  const [isSwapping, setIsSwapping] = useState(false);
+  const [payAmount, setPayAmount] = useState("");
+  const [receiveAmount, setReceiveAmount] = useState("");
+  const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]); // HBAR
+  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]); // BONZO
+  const [isQuoting, setIsQuoting] = useState(false);
+  const [payUsd, setPayUsd] = useState("0.00");
+  const [receiveUsd, setReceiveUsd] = useState("0.00");
+ 
+  const { prices } = usePriceFeed();
+  const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(userAddress);
+  
+  const [isClaiming, setIsClaiming] = useState(false);
+  const [hasClaimed, setHasClaimed] = useState(false);
+
+  const isAssociated = useMemo(() => {
+    if (recvToken.tokenId === "NATIVE") return true;
+    return liveBalances[recvToken.tokenId] !== undefined;
+  }, [recvToken, liveBalances]);
+
+  const handleClaimAirdrop = async () => {
+    if (!isConnected || isClaiming || hasClaimed || !userAddress) return;
+    setIsClaiming(true);
+    const toastId = toast.loading("Claiming Early Adopter Bonus...");
+    try {
+      const response = await fetch("/api/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accountId: userAddress }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Claim failed");
+
+      if (data.associationRequired) {
+        toast.loading("Association Required", { id: toastId, description: "Please associate VELO first." });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(userAddress))
+          .setTokenIds([TokenId.fromString(data.tokenId)]);
+        
+        const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
+        await (associateTx as any).freezeWithSigner(signer);
+        await (associateTx as any).executeWithSigner(signer);
+        
+        setIsClaiming(false);
+        handleClaimAirdrop();
+        return;
       }
-    };
-    check();
-  }, [userAddress, recvToken, isConnected]);
 
-  // Quote Logic
+      toast.success("AIRDROP CLAIMED!", {
+        id: toastId,
+        description: "Funds have arrived from the Velo Treasury.",
+        action: { label: "View HashScan", onClick: () => window.open(`https://hashscan.io/testnet/transaction/${data.transactionId}`, "_blank") },
+      });
+      setHasClaimed(true);
+      refreshBalances();
+    } catch (err: any) {
+      toast.error("Claim Failed", { id: toastId, description: err.message });
+    } finally {
+      setIsClaiming(false);
+    }
+  };
+
+  const isWrapPair = payToken.tokenId === "NATIVE" && recvToken.tokenId === MOCK_WHBAR_TOKEN_ID;
+
   useEffect(() => {
-    if (!payAmount || parseFloat(payAmount) <= 0) {
+    const amount = parseFloat(payAmount);
+    if (!payAmount || isNaN(amount) || amount <= 0) {
       setReceiveAmount("");
+      setPayUsd("0.00");
       setReceiveUsd("0.00");
+      setIsQuoting(false);
       return;
     }
 
-    const getQuote = async () => {
-      setIsQuoting(true);
-      try {
-        // Simple logic for Wrap
-        if (isWrapPair) {
-          setReceiveAmount(payAmount);
-          setReceiveUsd((parseFloat(payAmount) * 0.08).toFixed(2));
-          return;
-        }
+    const payPrice = getTokenPriceUsd(payToken.symbol, prices);
+    setPayUsd((amount * payPrice).toFixed(2));
 
-        // Fetch from prices API
-        const res = await fetch(`/api/prices?payToken=${payToken.tokenId}&recvToken=${recvToken.tokenId}&amount=${payAmount}`);
-        if (res.ok) {
-          const data = await res.json();
-          setReceiveAmount(data.receiveAmount.toFixed(6));
-          setReceiveUsd(data.usdValue.toFixed(2));
+    // ── 1:1 Wrap Bypass ──────────────────────────────────────────
+    if (isWrapPair) {
+      setReceiveAmount(amount.toFixed(8));
+      setReceiveUsd((amount * payPrice).toFixed(2));
+      setIsQuoting(false);
+      return;
+    }
+
+    setIsQuoting(true);
+    const handler = setTimeout(async () => {
+      let finalReceive = "0.00";
+      try {
+        const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
+        if (quote) {
+          finalReceive = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
+        } else {
+          const p1 = getTokenPriceUsd(payToken.symbol, prices);
+          const p2 = getTokenPriceUsd(recvToken.symbol, prices);
+          if (p1 > 0 && p2 > 0) finalReceive = ((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4);
         }
       } catch (err) {
         console.error("Quoting failed:", err);
-      } finally {
-        setIsQuoting(false);
       }
-    };
+      setReceiveAmount(finalReceive);
+      const recvPrice = getTokenPriceUsd(recvToken.symbol, prices);
+      setReceiveUsd((parseFloat(finalReceive) * recvPrice).toFixed(2));
+      setIsQuoting(false);
+    }, 600);
+    return () => clearTimeout(handler);
+  }, [payAmount, payToken, recvToken, prices, isWrapPair]);
 
-    const timer = setTimeout(getQuote, 500);
-    return () => clearTimeout(timer);
-  }, [payAmount, payToken, recvToken, isWrapPair]);
-
-  // --- Handlers ---
-
+  // ── Wrap Handler (HBAR → WHBAR via deposit()) ────────────────
   const handleWrap = async () => {
-    if (!isConnected || !userAddress || !hashconnect || !payAmount) return;
-    setIsSwapping(true);
-    const toastId = toast.loading("Processing Wrap...");
+    const amount = parseFloat(payAmount);
+    if (!isConnected || !userAddress || !hashconnect || isNaN(amount) || amount <= 0) return;
 
+    setIsSwapping(true);
+    const toastId = toast.loading("Preparing HBAR wrap...");
     try {
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
-      
-      // 1. Association check for WHBAR
-      if (!isAssociated && recvToken.tokenId !== "NATIVE") {
-        toast.loading("Associating WHBAR...", { id: toastId });
+
+      // 1. Associate WHBAR if not yet associated
+      if (!isAssociated) {
+        toast.loading("Associating WHBAR token...", { id: toastId });
         const associateTx = new TokenAssociateTransaction()
           .setAccountId(AccountId.fromString(userAddress))
           .setTokenIds([TokenId.fromString(MOCK_WHBAR_TOKEN_ID)]);
-        
         await (associateTx as any).freezeWithSigner(signer);
         await (associateTx as any).executeWithSigner(signer);
-        setIsAssociated(true);
+        toast.success("WHBAR Associated!", { id: toastId });
+        refreshBalances();
       }
 
-      // 2. Transfer HBAR to Treasury for Wrap
-      toast.loading("Executing Wrap...", { id: toastId });
-      const amountTiny = Math.floor(parseFloat(payAmount) * 100000000);
+      // 2. Transfer HBAR to Treasury (0.0.8642596)
+      toast.loading("Sending HBAR to Treasury...", { id: toastId });
+      const hbarTx = new TransferTransaction()
+        .addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-amount))
+        .addHbarTransfer(AccountId.fromString("0.0.8642596"), new Hbar(amount));
+
+      await (hbarTx as any).freezeWithSigner(signer);
+      const hbarResult = await (hbarTx as any).executeWithSigner(signer);
+
+      // 3. Verifying and Requesting WHBAR Payout
+      toast.loading("Verifying HBAR deposit...", { id: toastId });
       
-      const transferTx = new TransferTransaction()
-        .addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-parseFloat(payAmount)))
-        .addHbarTransfer(AccountId.fromString(TREASURY_ACCOUNT_ID), new Hbar(parseFloat(payAmount)));
+      const response = await fetch("/api/exchange-whbar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactionId: hbarResult.transactionId.toString(),
+          userAddress: userAddress,
+          amount: amount
+        })
+      });
 
-      await (transferTx as any).freezeWithSigner(signer);
-      const executionResult = await (transferTx as any).executeWithSigner(signer);
+      const exchangeData = await response.json();
+      if (!response.ok) throw new Error(exchangeData.message || "Exchange failed");
 
-      if (executionResult && executionResult.transactionId) {
-        // 3. Payout WHBAR via Backend
-        toast.loading("Verifying Deposit...", { id: toastId });
-        const res = await fetch("/api/exchange-whbar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            transactionId: executionResult.transactionId.toString(),
-            accountId: userAddress 
-          })
-        });
-
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error(data.error || "Exchange failed");
-
-        toast.success("Wrap Successful!", { id: toastId });
-      }
-
+      toast.success("Wrap Successful!", {
+        id: toastId,
+        description: `Sent ${amount} HBAR → Received ${amount} WHBAR`,
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hbarResult?.transactionId}`, "_blank")
+        }
+      });
       setPayAmount("");
-      setTimeout(refreshBalances, 2000);
-
-    } catch (err: any) {
-      console.error("[Wrap] Error:", err);
-      toast.error("Wrap Failed", { id: toastId, description: err.message });
+      refreshBalances(); // Immediate refresh
+      
+      // 3. Wait 2 seconds for indexer and secondary refresh
+      setTimeout(() => {
+        refreshBalances();
+      }, 2000);
+    } catch (error: any) {
+      console.error("[Wrap] Error:", error);
+      toast.error("Wrap Failed", { id: toastId, description: error.message });
     } finally {
       setIsSwapping(false);
     }
@@ -202,7 +279,7 @@ export default function SwapInterface() {
     if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
 
     setIsSwapping(true);
-    const toastId = toast.loading("Processing Swap...");
+    const toastId = toast.loading("Requesting Quote from Oracle...");
 
     try {
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
@@ -216,26 +293,30 @@ export default function SwapInterface() {
         
         await (associateTx as any).freezeWithSigner(signer);
         await (associateTx as any).executeWithSigner(signer);
-        setIsAssociated(true);
+        
+        toast.success(`${recvToken.symbol} Associated!`, { id: toastId });
+        refreshBalances();
       }
 
       // CASE A: TOKEN -> HBAR (Brokerage Sell Flow)
-      if (isSellFlow) {
+      if (payToken.tokenId !== "NATIVE") {
         toast.loading(`Sending ${payToken.symbol} to Treasury...`, { id: toastId });
         
-        const decimals = (payToken.tokenId === MOCK_WHBAR_TOKEN_ID || payToken.tokenId === "0.0.8725045") ? 8 : 6;
+        const decimals = (payToken.tokenId === "0.0.8735222" || payToken.tokenId === "0.0.8725045") ? 8 : 6;
         const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
+        const treasuryId = "0.0.8642596"; // Treasury
 
         const transferTx = new TransferTransaction()
           .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(userAddress), -amountTiny)
-          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(TREASURY_ACCOUNT_ID), amountTiny);
+          .addTokenTransfer(TokenId.fromString(payToken.tokenId), AccountId.fromString(treasuryId), amountTiny);
 
         await (transferTx as any).freezeWithSigner(signer);
         const signedTransfer = await (transferTx as any).executeWithSigner(signer);
         
-        if (!signedTransfer || !signedTransfer.transactionId) throw new Error("Transfer failed.");
+        if (!signedTransfer || !signedTransfer.transactionId) throw new Error("Transfer failed or was cancelled.");
 
-        toast.loading("Processing Payout...", { id: toastId });
+        // Step 2: Request Payout from Backend
+        toast.loading("Verifying transfer and processing HBAR payout...", { id: toastId });
         const payoutRes = await fetch("/api/broker-payout", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -248,12 +329,19 @@ export default function SwapInterface() {
         const payoutResult = await payoutRes.json();
         if (!payoutRes.ok || !payoutResult.success) throw new Error(payoutResult.error || "Payout failed");
 
-        toast.success("Sold for HBAR!", { id: toastId, description: `Received ${payoutResult.hbarAmount} HBAR.` });
+        toast.success("HBAR Received!", {
+          id: toastId,
+          description: `Successfully sold ${payAmount} ${payToken.symbol} for ${payoutResult.hbarAmount} HBAR.`,
+          action: {
+            label: "View Payout",
+            onClick: () => window.open(`https://hashscan.io/testnet/transaction/${payoutResult.transactionId}`, "_blank")
+          }
+        });
 
       } 
       // CASE B: HBAR -> TOKEN (Atomic Swap Flow)
       else {
-        toast.loading("Building Transaction...", { id: toastId });
+        toast.loading("Building Atomic Transaction...", { id: toastId });
         const response = await fetch("/api/build-swap", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -266,25 +354,32 @@ export default function SwapInterface() {
         });
 
         const result = await response.json();
-        if (!response.ok || !result.success) throw new Error(result.error || "Build failed");
+        if (!response.ok || !result.success) throw new Error(result.error || "Failed to build transaction");
 
-        toast.loading("Signing Transaction...", { id: toastId });
+        toast.loading("Waiting for your signature...", { id: toastId });
         const tx = Transaction.fromBytes(Buffer.from(result.transactionBytes, "hex"));
         const executionResult = await (tx as any).executeWithSigner(signer);
         
         if (executionResult && executionResult.transactionId) {
-          toast.success("Swap Complete!", { id: toastId });
+          toast.success("Swap Complete!", {
+            id: toastId,
+            description: `Successfully swapped ${payAmount} HBAR for ${result.amountOut.toFixed(4)} ${recvToken.symbol}.`,
+            action: {
+              label: "View HashScan",
+              onClick: () => window.open(`https://hashscan.io/testnet/transaction/${executionResult.transactionId}`, "_blank")
+            }
+          });
         } else {
-          throw new Error("Transaction failed.");
+          throw new Error(`Transaction failed with status: ${executionResult.status}`);
         }
       }
 
       setPayAmount("");
       refreshBalances();
 
-    } catch (err: any) {
-      console.error("[Swap] Error:", err);
-      toast.error("Swap Failed", { id: toastId, description: err.message });
+    } catch (error: any) {
+      console.error("[Swap] Brokerage Error:", error);
+      toast.error("Swap Failed", { id: toastId, description: error.message });
     } finally {
       setIsSwapping(false);
     }
@@ -308,10 +403,8 @@ export default function SwapInterface() {
     if (token.tokenId === "NATIVE") {
       return { value: balance, isLoading: isRefreshingBalance };
     }
-    const raw = liveBalances[token.tokenId];
-    const decimals = (token.tokenId === MOCK_WHBAR_TOKEN_ID || token.tokenId === "0.0.8725045") ? 8 : 6;
-    const formatted = raw ? (parseInt(raw) / Math.pow(10, decimals)).toLocaleString(undefined, { maximumFractionDigits: 4 }) : "0.00";
-    return { value: formatted, isLoading: isFetchingBalances };
+    const val = liveBalances[token.tokenId];
+    return { value: val ?? "0.00", isLoading: isFetchingBalances };
   };
 
   const payInfo = useMemo(() => getTokenBalanceInfo(payToken), [payToken, balance, isRefreshingBalance, liveBalances, isFetchingBalances]);
@@ -329,56 +422,82 @@ export default function SwapInterface() {
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4">
       {/* ── Early Adopter Bonus ─────────────────────────────── */}
       {isConnected && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="bg-velo-cyan/10 border border-velo-cyan/30 rounded-2xl p-4 flex items-center justify-between gap-4 relative overflow-hidden group">
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-velo-cyan/10 border border-velo-cyan/30 rounded-2xl p-4 flex items-center justify-between gap-4 overflow-hidden relative group"
+        >
+          <div className="absolute top-0 right-0 w-32 h-full bg-velo-cyan/5 blur-3xl -z-10 group-hover:bg-velo-cyan/10 transition-colors" />
+
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-velo-cyan/20 flex items-center justify-center text-velo-cyan shadow-[0_0_15px_rgba(6,182,212,0.2)]">
               <TrendingUp size={20} />
             </div>
             <div>
               <div className="text-xs font-bold text-velo-cyan uppercase tracking-wider">Early Adopter Bonus</div>
-              <div className="text-white font-semibold flex items-center gap-1.5">Claim 500 VELO <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded uppercase text-gray-400">Gift</span></div>
+              <div className="text-white font-semibold flex items-center gap-1.5">
+                Claim 500 VELO
+                <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded uppercase tracking-tighter text-gray-400">Gift</span>
+              </div>
             </div>
           </div>
+
+          <button
+            onClick={handleClaimAirdrop}
+            disabled={isClaiming || hasClaimed}
+            className={`px-5 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2
+              ${hasClaimed ? "bg-velo-green/20 text-velo-green border border-velo-green/30 cursor-default" :
+                isClaiming ? "bg-velo-cyan text-[#0b0e14] animate-pulse-cyan" :
+                "bg-velo-cyan text-[#0b0e14] hover:bg-cyan-400 glow-cyan active:scale-95 animate-pulse-cyan"}
+            `}
+          >
+            {isClaiming && <RefreshCw size={14} className="animate-spin" />}
+            {hasClaimed ? "✓ CLAIMED" : "CLAIM"}
+          </button>
         </motion.div>
       )}
 
-      {/* ── Swap Card ─────────────────────────────────────── */}
-      <div className="bg-velo-card border border-velo-border rounded-[32px] p-6 shadow-2xl relative">
-        <div className="flex items-center justify-between mb-8">
-          <h2 className="text-xl font-black text-white uppercase tracking-tighter italic flex items-center gap-2">
-            <ArrowDown className="text-velo-cyan" size={24} /> Swap
-          </h2>
-          <div className="flex gap-1">
-            {[0.25, 0.5, 0.75, 1].map((p) => (
-              <button key={p} onClick={() => setPercent(p)} className="px-2.5 py-1 text-[10px] font-bold bg-white/5 hover:bg-velo-cyan/20 text-gray-400 hover:text-velo-cyan rounded-lg border border-white/5 transition-all">
-                {p * 100}%
-              </button>
-            ))}
+      <div className="bg-velo-card border border-velo-border rounded-3xl p-4 sm:p-6 shadow-2xl w-full relative">
+        <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-2 relative">
+          <div className="text-sm text-gray-400 mb-2">You Pay</div>
+          <div className="flex items-center justify-between gap-4">
+            <input
+              type="text"
+              placeholder="0.00"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+              className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600"
+            />
+            <TokenDropdown 
+              label="Pay" 
+              selected={payToken} 
+              tokens={enrichedTokens}
+              disabledSymbol={recvToken.symbol} 
+              onSelect={(t) => { setPayToken(t); if (t.symbol === recvToken.symbol) setRecvToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} 
+            />
           </div>
-        </div>
-
-        {/* Pay Input */}
-        <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-2">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-gray-400">You Pay</span>
+          {payAmount && (
+            <div className="text-xs text-gray-500 mt-1 px-1">
+              ≈ ${payUsd} USD
+            </div>
+          )}
+          <div className="flex justify-between items-center text-sm text-gray-400 mt-5 px-1">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">Balance: {payInfo.value}</span>
+              <span>Balance:</span>
+              <span className="text-velo-cyan">{payInfo.value} {payToken.symbol}</span>
+            </div>
+            <div className="flex gap-3">
+              {[25, 50, 75, 100].map(p => (
+                <button key={p} onClick={() => setPercent(p/100)} className="hover:text-velo-cyan text-[10px] font-bold">{p === 100 ? "MAX" : `${p}%`}</button>
+              ))}
             </div>
           </div>
-          <div className="flex items-center justify-between gap-4">
-            <input type="text" placeholder="0.00" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
-            <TokenDropdown label="Pay" selected={payToken} tokens={enrichedTokens} disabledSymbol={recvToken.symbol} onSelect={(t) => setPayToken(t)} />
-          </div>
         </div>
 
-        {/* Flip Button */}
-        <div className="flex justify-center -my-3 relative z-10">
-          <button onClick={handleFlip} className="bg-[#1a2130] p-2.5 rounded-xl border border-velo-border text-velo-cyan hover:scale-110 active:rotate-180 transition-all shadow-xl group">
-            <ArrowDown size={20} className="group-hover:translate-y-0.5 transition-transform" />
-          </button>
+        <div className="relative flex justify-center -my-3 z-10">
+          <button onClick={handleFlip} className="bg-[#1a2130] border border-velo-border rounded-full p-2 hover:bg-[#232d42] transition-all"><ArrowUpDown size={16} className="text-velo-cyan" /></button>
         </div>
 
-        {/* Receive Input */}
         <div className="bg-[#0b0e14] rounded-2xl p-4 border border-velo-border mb-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-gray-400">You Receive</span>
@@ -386,44 +505,91 @@ export default function SwapInterface() {
           </div>
           <div className="flex items-center justify-between gap-4">
             <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium placeholder-gray-600" />
-            <TokenDropdown label="Receive" selected={recvToken} tokens={enrichedTokens} disabledSymbol={payToken.symbol} onSelect={(t) => setRecvToken(t)} />
+            <TokenDropdown 
+              label="Receive" 
+              selected={recvToken} 
+              tokens={enrichedTokens}
+              disabledSymbol={payToken.symbol} 
+              onSelect={(t) => { setRecvToken(t); if (t.symbol === payToken.symbol) setPayToken(TOKEN_LIST.find(x => x.symbol !== t.symbol)!) }} 
+            />
           </div>
-          {receiveAmount && <div className="text-xs text-gray-500 mt-1">≈ ${receiveUsd} USD</div>}
-        </div>
+        {/* ── Swap Button ───────────────────────────────────── */}
+        <div className="space-y-4">
+          {payToken.tokenId !== "NATIVE" && payAmount && parseFloat(payAmount) > 0 && (
+            <div className="bg-black/40 border border-white/5 rounded-2xl p-4 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Est. Payout</span>
+                <span className="text-white">Calculating...</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Brokerage Fee</span>
+                <span className="text-velo-cyan">0.25 HBAR</span>
+              </div>
+              <div className="pt-2 border-t border-white/5 flex justify-between text-sm font-bold">
+                <span className="text-white">Total Expected</span>
+                <span className="text-velo-green">~ HBAR</span>
+              </div>
+            </div>
+          )}
 
-        {/* Sell Breakdown */}
-        {isSellFlow && payAmount && parseFloat(payAmount) > 0 && (
-          <div className="bg-black/40 border border-white/5 rounded-2xl p-4 space-y-2 mb-4">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Brokerage Fee</span>
-              <span className="text-velo-cyan">0.25 HBAR</span>
+          <button
+            onClick={handleSwap}
+            disabled={!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping}
+            className={`w-full py-5 rounded-[24px] font-black uppercase tracking-[0.2em] shadow-xl transition-all relative overflow-hidden group
+              ${!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping
+                ? "bg-gray-800 text-gray-500 cursor-not-allowed"
+                : "bg-gradient-to-r from-velo-cyan to-velo-blue text-white hover:scale-[1.02] hover:shadow-cyan-500/20 active:scale-[0.98]"
+              }`}
+          >
+            {isSwapping ? (
+              <div className="flex items-center justify-center gap-3">
+                <Loader2 className="animate-spin" size={20} />
+                <span>Processing...</span>
+              </div>
+            ) : !isConnected ? (
+              "Connect Wallet"
+            ) : !payAmount || parseFloat(payAmount) <= 0 ? (
+              "Enter Amount"
+            ) : payToken.tokenId !== "NATIVE" ? (
+              `Sell ${payToken.symbol} for HBAR`
+            ) : (
+              "Swap Now"
+            )}
+            
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 pointer-events-none" />
+          </button>
+        </div>      </div>
+          {receiveAmount && (
+            <div className="text-xs text-gray-500 mt-1 px-1">
+              ≈ ${receiveUsd} USD
             </div>
-            <div className="pt-2 border-t border-white/5 flex justify-between text-sm font-bold text-velo-green">
-              <span>Total Expected Payout</span>
-              <span>~ HBAR</span>
-            </div>
+          )}
+          <div className="flex items-center gap-2 text-sm text-gray-400 mt-3 px-1">
+            <span>Balance:</span>
+            <span className="text-velo-cyan">{recvInfo.value} {recvToken.symbol}</span>
           </div>
-        )}
+        </div>
 
         <button
           onClick={isWrapPair ? handleWrap : handleSwap}
-          disabled={!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping}
-          className={`w-full py-5 rounded-2xl font-black uppercase tracking-widest shadow-xl transition-all
-            ${!isConnected || !payAmount || parseFloat(payAmount) <= 0 || isSwapping
-              ? "bg-gray-800 text-gray-500 cursor-not-allowed"
-              : "bg-gradient-to-r from-velo-cyan to-velo-blue text-white hover:scale-[1.02] active:scale-[0.98]"
-            }`}
+          disabled={!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0}
+          className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
         >
-          {isSwapping ? "Processing..." : 
-           !isConnected ? "Connect Wallet" :
-           !payAmount || parseFloat(payAmount) <= 0 ? "Enter Amount" :
-           isWrapPair ? (isAssociated ? "Wrap Assets" : "Associate & Wrap") :
-           isSellFlow ? `Sell ${payToken.symbol} for HBAR` : "Swap Now"}
+          {isSwapping 
+            ? <RefreshCw size={20} className="animate-spin" /> 
+            : !isConnected 
+              ? "CONNECT WALLET"
+              : !payAmount || parseFloat(payAmount) <= 0
+                ? "Enter an amount"
+                : isWrapPair
+                  ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount} HBAR`)
+                  : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
+          }
         </button>
 
-        <div className="text-center text-[10px] text-gray-500 mt-6 flex items-center justify-center gap-2">
-          <Info size={14} className="text-velo-cyan" />
-          <span>Using <span className="text-velo-cyan font-bold">ECDSA</span> account.</span>
+        <div className="text-center text-[10px] text-gray-500 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
+          <Info size={14} className="text-velo-cyan shrink-0" />
+          <span className="leading-tight">Please ensure you are using an <span className="text-velo-cyan font-bold">ECDSA-type</span> account.</span>
         </div>
       </div>
     </div>
@@ -477,6 +643,7 @@ function TokenDropdown({ label, selected, tokens, onSelect, disabledSymbol }: { 
               </div>
               <div className="text-right">
                 <div className="text-xs font-bold text-white">{t.balance}</div>
+                {t.isLoading && <RefreshCw size={8} className="animate-spin text-velo-cyan ml-auto" />}
               </div>
             </button>
           ))}
