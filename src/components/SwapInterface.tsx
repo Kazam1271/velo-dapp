@@ -420,7 +420,6 @@ export default function SwapInterface() {
               className="bg-transparent text-4xl w-full outline-none text-white font-medium"
             />
             <TokenDropdown 
-              label="Pay" 
               selected={payToken} 
               tokens={enrichedTokens}
               disabledSymbol={recvToken.symbol} 
@@ -456,7 +455,6 @@ export default function SwapInterface() {
           <div className="flex items-center justify-between gap-4">
             <input type="text" placeholder="0.00" value={receiveAmount} readOnly className="bg-transparent text-4xl w-full outline-none text-white font-medium" />
             <TokenDropdown 
-              label="Receive" 
               selected={recvToken} 
               tokens={enrichedTokens}
               disabledSymbol={payToken.symbol} 
