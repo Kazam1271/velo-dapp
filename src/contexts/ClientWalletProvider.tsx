@@ -11,6 +11,7 @@ const DynamicHashConnectProvider = dynamic(
 
 const BottomNav = dynamic(() => import('@/components/BottomNav'), { ssr: false });
 const Header = dynamic(() => import('@/components/Header'), { ssr: false });
+import { usePathname } from 'next/navigation';
 
 export function ClientWalletProvider({ children }: { children: ReactNode }) {
   const [mounted, setMounted] = useState(false);
@@ -19,6 +20,9 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
     setMounted(true);
   }, []);
 
+  const pathname = usePathname();
+  const isLandingPage = pathname === '/';
+
   if (!mounted) {
     return <div className="min-h-screen bg-velo-bg">{children}</div>;
   }
@@ -26,11 +30,19 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
   return (
     <DynamicHashConnectProvider>
       <div className="flex flex-col min-h-screen bg-velo-bg text-white selection:bg-velo-cyan/30">
-        <Header />
-        <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-32 pt-6">
-          {children}
-        </main>
-        <BottomNav />
+        {!isLandingPage && <Header />}
+        
+        {isLandingPage ? (
+          <main className="flex-1 w-full">
+            {children}
+          </main>
+        ) : (
+          <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-32 pt-6">
+            {children}
+          </main>
+        )}
+        
+        {!isLandingPage && <BottomNav />}
       </div>
     </DynamicHashConnectProvider>
   );
