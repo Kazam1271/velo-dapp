@@ -19,9 +19,10 @@ import { toast } from "sonner";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { supabase } from "@/lib/supabase";
+import { TransferTransaction, Hbar, TokenId, AccountId } from "@hiero-ledger/sdk";
 
 export default function TransferView() {
-  const { pairingData } = useHashConnect();
+  const { pairingData, hashconnect } = useHashConnect();
   const accountId = pairingData?.accountIds[0] || null;
 
   const [recipient, setRecipient] = useState("");
@@ -29,6 +30,7 @@ export default function TransferView() {
   const [selectedToken, setSelectedToken] = useState<Token>(TOKEN_LIST[0]);
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   
   // Smart Resolver States
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
@@ -108,6 +110,61 @@ export default function TransferView() {
       toast.success("Address pasted from clipboard");
     } catch (err) {
       toast.error("Failed to read from clipboard");
+    }
+  };
+
+  const executeTransfer = async () => {
+    if (!accountId || !resolvedAddress || isSending) return;
+    setIsSending(true);
+
+    try {
+      const treasuryId = "0.0.12345"; // Hardcoded Velo Treasury
+      let transaction = new TransferTransaction();
+      const isNative = selectedToken.tokenId === "NATIVE";
+
+      if (isNative) {
+        // HBAR Logic
+        const grossTiny = Math.floor(grossAmount * 100_000_000);
+        const protocolTiny = Math.floor(protocolFee * 100_000_000);
+        const netTiny = grossTiny - protocolTiny;
+
+        transaction
+          .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(-grossTiny))
+          .addHbarTransfer(AccountId.fromString(resolvedAddress), Hbar.fromTinybars(netTiny))
+          .addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromTinybars(protocolTiny));
+      } else {
+        // Custom HTS Token Logic
+        const multiplier = Math.pow(10, selectedToken.decimals);
+        const grossUnits = Math.floor(grossAmount * multiplier);
+        const protocolUnits = Math.floor(protocolFee * multiplier);
+        const netUnits = grossUnits - protocolUnits;
+        const tokenId = TokenId.fromString(selectedToken.tokenId);
+
+        transaction
+          .addTokenTransfer(tokenId, AccountId.fromString(accountId), -grossUnits)
+          .addTokenTransfer(tokenId, AccountId.fromString(resolvedAddress), netUnits)
+          .addTokenTransfer(tokenId, AccountId.fromString(treasuryId), protocolUnits);
+      }
+
+      const signer = hashconnect.getSigner(AccountId.fromString(accountId));
+      const frozenTx = await transaction.freezeWithSigner(signer);
+      const res = await frozenTx.executeWithSigner(signer);
+
+      if (res && res.receipt) {
+        toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
+      } else {
+        toast.success(`Transfer initiated! Check your wallet.`);
+      }
+
+      setIsReviewModalOpen(false);
+      setAmount("");
+      setRecipient("");
+      setResolvedAddress(null);
+    } catch (error: any) {
+      console.error("Transfer failed:", error);
+      toast.error("Transaction failed or was rejected.");
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -303,18 +360,21 @@ export default function TransferView() {
                   Cancel
                 </button>
                 <button 
-                  onClick={() => {
-                    toast.promise(new Promise(resolve => setTimeout(resolve, 2000)), {
-                      loading: 'Processing transaction...',
-                      success: 'Transfer successful!',
-                      error: 'Transfer failed',
-                    });
-                    setIsReviewModalOpen(false);
-                  }}
-                  className="py-4 rounded-2xl font-black text-slate-950 bg-velo-cyan hover:bg-cyan-300 transition-all shadow-lg shadow-velo-cyan/20 flex items-center justify-center gap-2"
+                  disabled={isSending}
+                  onClick={executeTransfer}
+                  className={`py-4 rounded-2xl font-black text-slate-950 transition-all shadow-lg flex items-center justify-center gap-2 ${isSending ? 'bg-velo-cyan/50 cursor-not-allowed' : 'bg-velo-cyan hover:bg-cyan-300 shadow-velo-cyan/20'}`}
                 >
-                  Confirm & Send
-                  <ArrowRight size={18} />
+                  {isSending ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      Confirm & Send
+                      <ArrowRight size={18} />
+                    </>
+                  )}
                 </button>
               </div>
             </div>
