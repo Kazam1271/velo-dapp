@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 const navItems = [
   { name: 'Swap', icon: ArrowLeftRight, href: '/' },
-  { name: 'Pools', icon: Droplets, href: '/pools' },
+  { name: 'Earn', icon: Droplets, href: '/pools' },
   { name: 'Bridge', icon: LinkIcon, href: '/bridge', locked: true },
   { name: 'Transfer', icon: Send, href: '/transfer' },
   { name: 'Profile', icon: User, href: '/profile' }
