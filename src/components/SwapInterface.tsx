@@ -46,8 +46,8 @@ export default function SwapInterface() {
   const [isQuoting, setIsQuoting] = useState(false);
   const [payUsd, setPayUsd] = useState("0.00");
   const [receiveUsd, setReceiveUsd] = useState("0.00");
- 
-  const { prices } = usePriceFeed();
+  
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const { liveBalances, isFetching: isFetchingBalances, refresh: refreshBalances } = useTokenBalances(userAddress);
   
   const [isClaiming, setIsClaiming] = useState(false);
@@ -68,43 +68,53 @@ export default function SwapInterface() {
     }
   }, [isConnected, userAddress]);
 
-  // ── Quote Engine ──
+  // ── Price Polling (Every 10 Seconds) ──
+  useEffect(() => {
+    const fetchPrices = async () => {
+      try {
+        const res = await fetch("/api/get-prices");
+        const data = await res.json();
+        if (data.success) {
+          setLivePrices(data.prices);
+        }
+      } catch (err) {
+        console.error("Price sync failed:", err);
+      }
+    };
+
+    fetchPrices();
+    const interval = setInterval(fetchPrices, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── Quote Engine (Using Live Prices) ──
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
       setReceiveAmount("");
       setPayUsd("0.00");
       setReceiveUsd("0.00");
-      setIsQuoting(false);
       return;
     }
 
-    setIsQuoting(true);
-    const handler = setTimeout(async () => {
-      try {
-        const response = await fetch("/api/get-quote", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            tokenInId: payToken.tokenId,
-            tokenOutId: recvToken.tokenId,
-            amountIn: amount
-          })
-        });
-        const result = await response.json();
-        if (result.success) {
-          setReceiveAmount(result.amountOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
-          setPayUsd((amount * result.priceIn).toFixed(2));
-          setReceiveUsd((result.amountOut * result.priceOut).toFixed(2));
-        }
-      } catch (err) {
-        console.error("Quoting failed:", err);
-      } finally {
-        setIsQuoting(false);
+    const priceIn = livePrices[payToken.tokenId] || livePrices[payToken.symbol] || 0.08;
+    const priceOut = livePrices[recvToken.tokenId] || livePrices[recvToken.symbol] || 0.10;
+
+    if (priceIn > 0 && priceOut > 0) {
+      const usdValue = amount * priceIn;
+      const amountOut = usdValue / priceOut;
+      
+      // If it's a sell to HBAR, show estimate minus fee (rough UI estimate)
+      let finalOut = amountOut;
+      if (recvToken.tokenId === "NATIVE") {
+        finalOut = Math.max(0, amountOut - 0.25);
       }
-    }, 600);
-    return () => clearTimeout(handler);
-  }, [payAmount, payToken, recvToken]);
+
+      setReceiveAmount(finalOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
+      setPayUsd(usdValue.toFixed(2));
+      setReceiveUsd((finalOut * priceOut).toFixed(2));
+    }
+  }, [payAmount, payToken, recvToken, livePrices]);
 
   // ── Handlers ──
   const handleSwap = async () => {
@@ -164,9 +174,9 @@ export default function SwapInterface() {
       const payoutData = await payoutRes.json();
       if (!payoutRes.ok || !payoutData.success) throw new Error(payoutData.error || "Payout failed");
 
-      toast.success("Brokerage Swap Complete!", {
+      toast.success("Swap Complete!", {
         id: toastId,
-        description: `Your ${recvToken.symbol} has been sent by the Treasury.`,
+        description: `Successfully swapped ${payAmount} ${payToken.symbol} via Velo Broker.`,
         action: {
           label: "View Payout",
           onClick: () => window.open(`https://hashscan.io/testnet/transaction/${payoutData.payoutTxId}`, "_blank")
@@ -372,7 +382,7 @@ export default function SwapInterface() {
               ? "CONNECT WALLET"
               : !payAmount || parseFloat(payAmount) <= 0
                 ? "Enter an amount"
-                : `SWAP VIA BROKERAGE`
+                : `SWAP`
           }
         </button>
 

@@ -21,61 +21,73 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
     }
 
-    // 1. Verify Transaction via Mirror Node
+    // 1. Verify Transaction via Mirror Node with Retry Loop
+    const treasuryId = process.env.TREASURY_ID!;
     const mirrorUrl = `https://testnet.mirrornode.hedera.com/api/v1/transactions/${transactionId}`;
-    let txRes = await fetch(mirrorUrl);
-    
-    if (!txRes.ok) {
-      await new Promise(r => setTimeout(r, 2000)); // Indexer lag
-      txRes = await fetch(mirrorUrl);
-      if (!txRes.ok) throw new Error("Transaction not found on ledger.");
+    let transaction = null;
+    let attempts = 0;
+
+    while (attempts < 5) {
+      const txRes = await fetch(mirrorUrl);
+      if (txRes.ok) {
+        const txData = await txRes.json();
+        if (txData.transactions && txData.transactions.length > 0) {
+          transaction = txData.transactions[0];
+          if (transaction.result === "SUCCESS") break;
+        }
+      }
+      attempts++;
+      console.log(`[Broker Payout] Waiting for mirror node... attempt ${attempts}`);
+      await new Promise(r => setTimeout(r, 2500)); // Wait 2.5s between retries
     }
 
-    const txData = await txRes.json();
-    const transaction = txData.transactions[0];
-    if (!transaction || transaction.result !== "SUCCESS") throw new Error("Transaction failed on-chain.");
+    if (!transaction || transaction.result !== "SUCCESS") {
+      throw new Error("Transaction verification failed. Not found or not successful on ledger.");
+    }
 
-    // 2. ORACLE: Fetch prices
+    // 2. ORACLE: Fetch prices (Server-side)
     let hbarUsd = 0.08;
     try {
-      const priceRes = await fetch('https://api.saucerswap.finance/tokens');
+      const priceRes = await fetch('https://api.saucerswap.finance/tokens', {
+        headers: { 'x-api-key': process.env.SAUCERSWAP_API_KEY || "" }
+      });
       if (priceRes.ok) {
         const tokens = await priceRes.json();
         const hbar = tokens.find((t: any) => t.symbol === 'HBAR' || t.symbol === 'WHBAR');
         if (hbar) hbarUsd = parseFloat(hbar.priceUsd);
+        
+        // Update mock prices with live ones
+        tokens.forEach((t: any) => {
+          if (MOCK_PRICES_USD[t.tokenId]) MOCK_PRICES_USD[t.tokenId] = parseFloat(t.priceUsd);
+        });
       }
     } catch (e) {}
 
     // 3. DETERMINE DIRECTION & CALCULATE PAYOUT
-    const treasuryId = process.env.TREASURY_ID!;
     let usdIn = 0;
-    let assetInSymbol = "";
 
-    // Check for HBAR arrival
+    // Check for HBAR arrival at Treasury
     const hbarTransfer = transaction.transfers.find((tf: any) => tf.account === treasuryId && tf.amount > 0);
     if (hbarTransfer) {
-      const amountInHbar = hbarTransfer.amount / 100_000_000;
+      const amountInHbar = hbarTransfer.amount / 100_000_000; // tinybars to hbar
       usdIn = amountInHbar * hbarUsd;
-      assetInSymbol = "HBAR";
     } else {
-      // Check for Token arrival
+      // Check for Token arrival at Treasury
       const tokenTransfer = transaction.token_transfers.find((tf: any) => tf.account === treasuryId && tf.amount > 0);
-      if (!tokenTransfer) throw new Error("Treasury received no funds.");
+      if (!tokenTransfer) throw new Error("Treasury received no funds. Verification failed.");
       
       const inTokenId = tokenTransfer.token_id;
       const rawIn = tokenTransfer.amount;
       
-      // Get decimals for input token
       const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${inTokenId}`);
       const tokenInfo = await tokenInfoRes.json();
       const amountIn = rawIn / Math.pow(10, tokenInfo.decimals || 0);
       
       const priceIn = MOCK_PRICES_USD[inTokenId] || 0.10;
       usdIn = amountIn * priceIn;
-      assetInSymbol = tokenInfo.symbol;
     }
 
-    // 4. PREPARE PAYOUT
+    // 4. EXECUTE PAYOUT
     const client = Client.forTestnet();
     const treasuryKey = PrivateKey.fromStringECDSA(process.env.TREASURY_KEY!);
     const operatorId = AccountId.fromString(treasuryId);
@@ -87,7 +99,6 @@ export async function POST(req: Request) {
       // Payout HBAR
       let hbarOut = usdIn / hbarUsd;
       hbarOut = Math.max(0, hbarOut - BROKERAGE_FEE_HBAR);
-      
       if (hbarOut <= 0) throw new Error("Payout too small for fees.");
       
       payoutTx.addHbarTransfer(operatorId, new Hbar(-hbarOut))
@@ -95,7 +106,8 @@ export async function POST(req: Request) {
     } else {
       // Payout Token
       const priceOut = MOCK_PRICES_USD[targetTokenId] || 0.10;
-      const amountOut = (usdIn - (BROKERAGE_FEE_HBAR * hbarUsd)) / priceOut;
+      const hbarFeeInUsd = BROKERAGE_FEE_HBAR * hbarUsd;
+      const amountOut = (usdIn - hbarFeeInUsd) / priceOut;
       
       const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${targetTokenId}`);
       const tokenInfo = await tokenInfoRes.json();
@@ -106,7 +118,11 @@ export async function POST(req: Request) {
     }
 
     const executed = await payoutTx.execute(client);
-    await executed.getReceipt(client);
+    const receipt = await executed.getReceipt(client);
+
+    if (receipt.status.toString() !== "SUCCESS") {
+      throw new Error(`Payout failed with status: ${receipt.status}`);
+    }
 
     return NextResponse.json({ 
       success: true, 

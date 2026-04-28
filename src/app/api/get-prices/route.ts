@@ -13,16 +13,27 @@ const MOCK_PRICES_USD: Record<string, number> = {
 export async function GET() {
   try {
     let hbarPrice = 0.08;
+    const apiKey = process.env.SAUCERSWAP_API_KEY || "";
     
     // 1. Fetch live HBAR price from SaucerSwap
     try {
       const response = await fetch('https://api.saucerswap.finance/tokens', {
-        next: { revalidate: 60 } // Cache for 60 seconds
+        headers: {
+          'x-api-key': apiKey
+        },
+        next: { revalidate: 10 } // Cache for 10 seconds
       });
       if (response.ok) {
         const tokens = await response.json();
         const hbar = tokens.find((t: any) => t.symbol === 'WHBAR' || t.symbol === 'HBAR');
         if (hbar) hbarPrice = parseFloat(hbar.priceUsd);
+
+        // Also update mock prices with live ones if available
+        tokens.forEach((t: any) => {
+          if (MOCK_PRICES_USD[t.tokenId]) {
+            MOCK_PRICES_USD[t.tokenId] = parseFloat(t.priceUsd);
+          }
+        });
       }
     } catch (e) {
       console.warn("[Prices API] SaucerSwap fetch failed, using fallback.");

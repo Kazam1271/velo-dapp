@@ -27,7 +27,7 @@ export default function BottomNav() {
             return (
               <button 
                 key={item.name}
-                onClick={() => toast.info("Not available now, launching on Mainnet")}
+                onClick={() => toast.info("not available for now, launching on mainnet!")}
                 className="flex-1 flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl transition-all duration-300 relative group text-slate-700 blur-[1px] cursor-not-allowed grayscale"
               >
                 <div className="relative">
