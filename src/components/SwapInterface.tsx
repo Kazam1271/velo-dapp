@@ -154,23 +154,37 @@ export default function SwapInterface() {
 
     setIsQuoting(true);
     const handler = setTimeout(async () => {
-      let finalReceive = "0.00";
       try {
-        const quote = await getSaucerSwapQuote(payToken.tokenId, recvToken.tokenId, payAmount, payToken.decimals);
-        if (quote) {
-          finalReceive = parseFloat(ethers.formatUnits(quote, recvToken.decimals)).toFixed(recvToken.decimals > 6 ? 6 : 4);
+        const response = await fetch("/api/get-quote", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            tokenInId: payToken.tokenId,
+            tokenOutId: recvToken.tokenId,
+            amountIn: amount
+          })
+        });
+        const result = await response.json();
+        if (result.success) {
+          setReceiveAmount(result.amountOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
+          setPayUsd((amount * result.priceIn).toFixed(2));
+          setReceiveUsd((result.amountOut * result.priceOut).toFixed(2));
         } else {
+          // Fallback logic
           const p1 = getTokenPriceUsd(payToken.symbol, prices);
           const p2 = getTokenPriceUsd(recvToken.symbol, prices);
-          if (p1 > 0 && p2 > 0) finalReceive = ((amount * p1) / p2).toFixed(recvToken.decimals > 6 ? 6 : 4);
+          if (p1 > 0 && p2 > 0) {
+            const final = (amount * p1) / p2;
+            setReceiveAmount(final.toFixed(recvToken.decimals > 6 ? 6 : 4));
+            setPayUsd((amount * p1).toFixed(2));
+            setReceiveUsd((final * p2).toFixed(2));
+          }
         }
       } catch (err) {
         console.error("Quoting failed:", err);
+      } finally {
+        setIsQuoting(false);
       }
-      setReceiveAmount(finalReceive);
-      const recvPrice = getTokenPriceUsd(recvToken.symbol, prices);
-      setReceiveUsd((parseFloat(finalReceive) * recvPrice).toFixed(2));
-      setIsQuoting(false);
     }, 600);
     return () => clearTimeout(handler);
   }, [payAmount, payToken, recvToken, prices, isWrapPair]);
