@@ -128,8 +128,10 @@ export async function POST(req: Request) {
       hbarOut = Math.max(0, hbarOut - BROKERAGE_FEE_HBAR);
       if (hbarOut <= 0) throw new Error("Payout too small for fees.");
       
-      payoutTx.addHbarTransfer(operatorId, new Hbar(-hbarOut))
-              .addHbarTransfer(AccountId.fromString(accountId), new Hbar(hbarOut));
+      const hbarOutTiny = Math.floor(hbarOut * 100_000_000);
+
+      payoutTx.addHbarTransfer(operatorId, Hbar.fromTinybars(-hbarOutTiny))
+              .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(hbarOutTiny));
       logMsg = `Sending ${hbarOut.toFixed(4)} HBAR to User ${accountId}...`;
     } else {
       const priceOut = MOCK_PRICES_USD[targetTokenId] || 0.10;
