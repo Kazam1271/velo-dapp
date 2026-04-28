@@ -227,28 +227,37 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2. Execute deposit() on the WHBAR contract — payable with HBAR
-      toast.loading("Waiting for your signature to wrap...", { id: toastId });
-      const tinybars = Math.floor(amount * 100_000_000);
-      // Force target to 0.0.8735222 as per mission
-      const targetContractId = "0.0.8735222";
-      const wrapTx = new ContractExecuteTransaction()
-        .setContractId(ContractId.fromString(targetContractId))
-        .setGas(100_000)
-        .setFunction("deposit")
-        .setPayableAmount(Hbar.fromTinybars(tinybars));
+      // 2. Transfer HBAR to Treasury (0.0.8642596)
+      toast.loading("Sending HBAR to Treasury...", { id: toastId });
+      const hbarTx = new TransferTransaction()
+        .addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-amount))
+        .addHbarTransfer(AccountId.fromString("0.0.8642596"), new Hbar(amount));
 
-      console.log("Wrapping HBAR:", { target: targetContractId, amount: amount });
+      await (hbarTx as any).freezeWithSigner(signer);
+      const hbarResult = await (hbarTx as any).executeWithSigner(signer);
 
-      await (wrapTx as any).freezeWithSigner(signer);
-      const result = await (wrapTx as any).executeWithSigner(signer);
+      // 3. Verifying and Requesting WHBAR Payout
+      toast.loading("Verifying HBAR deposit...", { id: toastId });
+      
+      const response = await fetch("/api/exchange-whbar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transactionId: hbarResult.transactionId.toString(),
+          userAddress: userAddress,
+          amount: amount
+        })
+      });
+
+      const exchangeData = await response.json();
+      if (!response.ok) throw new Error(exchangeData.message || "Exchange failed");
 
       toast.success("Wrap Successful!", {
         id: toastId,
-        description: `${payAmount} HBAR → ${payAmount} WHBAR`,
+        description: `Sent ${amount} HBAR → Received ${amount} WHBAR`,
         action: {
           label: "View HashScan",
-          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result?.transactionId}`, "_blank")
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${hbarResult?.transactionId}`, "_blank")
         }
       });
       setPayAmount("");
