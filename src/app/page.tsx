@@ -41,19 +41,19 @@ export default function LandingPage() {
         {/* Hero Section */}
         <section className="flex-1 flex flex-col items-center justify-center px-4 pt-32 pb-20 text-center">
           
-          {/* Main Header */}
+          {/* Main Header — logo.png wordmark */}
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, ease: "easeOut" }}
-            className="flex items-center justify-center gap-4 mb-6"
+            className="flex items-center justify-center mb-6"
           >
-            <div className="w-16 h-16 md:w-24 md:h-24 relative rounded-full overflow-hidden shadow-[0_0_40px_rgba(34,211,238,0.3)] border border-velo-cyan/20">
-              <img src="/logov.png" alt="Velo Logo" className="w-full h-full object-cover" />
-            </div>
-            <h1 className="text-7xl md:text-9xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-white via-velo-cyan to-white drop-shadow-[0_0_30px_rgba(34,211,238,0.4)]">
-              VELO
-            </h1>
+            <img
+              src="/logo.png"
+              alt="Velo"
+              className="h-32 md:h-48 w-auto object-contain drop-shadow-[0_0_40px_rgba(34,211,238,0.55)] select-none"
+              draggable={false}
+            />
           </motion.div>
 
           {/* Motto */}
