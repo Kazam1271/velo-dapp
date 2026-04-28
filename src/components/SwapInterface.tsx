@@ -231,14 +231,16 @@ export default function SwapInterface() {
       toast.loading("Waiting for your signature to wrap...", { id: toastId });
       const tinybars = Math.floor(amount * 100_000_000);
 
+      // Force target to 0.0.8735222 as per mission
+      const targetContractId = "0.0.8735222";
       const wrapTx = new ContractExecuteTransaction()
-        .setContractId(ContractId.fromString(MOCK_WHBAR_CONTRACT_ID))
-        .setGas(100_000)
+        .setContractId(ContractId.fromString(targetContractId))
+        .setGas(250_000) // Increased gas for safety
         .setFunction("deposit")
         .setPayableAmount(Hbar.fromTinybars(tinybars));
 
-      console.log(`[Wrap] TARGET CONTRACT: ${MOCK_WHBAR_CONTRACT_ID}`);
-      console.log(`[Wrap] PAYABLE AMOUNT: ${tinybars} tinybars`);
+      console.log(`[Wrap] EXECUTE ON: ${targetContractId}`);
+      console.log(`[Wrap] PAYABLE: ${tinybars} tinybars`);
 
       await (wrapTx as any).freezeWithSigner(signer);
       const result = await (wrapTx as any).executeWithSigner(signer);
