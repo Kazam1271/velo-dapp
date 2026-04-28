@@ -16,17 +16,8 @@ import {
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
-
-interface Contact {
-  id: string;
-  name: string;
-}
-
-const RECENT_CONTACTS: Contact[] = [
-  { id: "0.0.123456", name: "V-8X9A" },
-  { id: "0.0.789012", name: "V-4K2L" },
-  { id: "0.0.345678", name: "V-9M1Q" },
-];
+import { useHederaBalance } from "@/hooks/useHederaBalance";
+import { useTokenBalances } from "@/hooks/useTokenBalances";
 
 export default function TransferView() {
   const { pairingData } = useHashConnect();
@@ -37,22 +28,8 @@ export default function TransferView() {
   const [selectedToken, setSelectedToken] = useState<Token>(TOKEN_LIST[0]);
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [balances, setBalances] = useState<Record<string, number>>({});
-  
-  // Smart Resolver States
-  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
-  const [isResolving, setIsResolving] = useState(false);
-  const [resolveError, setResolveError] = useState<string | null>(null);
-
-  // Mock balance fetching
-  useEffect(() => {
-    if (accountId) {
-      setBalances({
-        "NATIVE": 1250.00, // HBAR
-        "0.0.8735221": 2500.00, // USDC
-      });
-    }
-  }, [accountId]);
+  const { balance: hbarBalance } = useHederaBalance(accountId);
+  const { liveBalances } = useTokenBalances(accountId);
 
   // Smart Input Resolver
   useEffect(() => {
@@ -75,22 +52,13 @@ export default function TransferView() {
         setIsResolving(false);
         return;
       }
-
-      // Check 2: Recent contacts
-      const recentMatch = RECENT_CONTACTS.find(c => c.name.toLowerCase() === input.toLowerCase());
-      if (recentMatch) {
-        setResolvedAddress(recentMatch.id);
-        setIsResolving(false);
-        return;
-      }
-
-      // Check 3: Local Storage Mock
+      // Check 2: Local Storage Mock
       try {
         let foundId: string | null = null;
         for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
-          if (key && key.startsWith("username_")) {
-            const accId = key.replace("username_", "");
+          if (key && key.startsWith("velo_username_")) {
+            const accId = key.replace("velo_username_", "");
             const storedUsername = localStorage.getItem(key);
             let veloId = "";
             try {
@@ -101,6 +69,7 @@ export default function TransferView() {
               storedUsername?.toLowerCase() === input.toLowerCase() ||
               veloId.toLowerCase() === input.toLowerCase()
             ) {
+              console.log(`[Resolver] Found match: ${storedUsername} -> ${accId}`);
               foundId = accId;
               break;
             }
@@ -110,9 +79,11 @@ export default function TransferView() {
         if (foundId) {
           setResolvedAddress(foundId);
         } else {
+          console.log(`[Resolver] No match found in localStorage for ${input}`);
           setResolveError("Invalid address or Velo ID not found");
         }
       } catch (error) {
+        console.error("[Resolver] Error parsing localStorage:", error);
         setResolveError("Failed to resolve destination");
       }
 
@@ -123,7 +94,9 @@ export default function TransferView() {
     return () => clearTimeout(debounceTimer);
   }, [recipient]);
 
-  const currentBalance = balances[selectedToken.tokenId] || 0;
+  const currentBalance = selectedToken.tokenId === "NATIVE" 
+    ? parseFloat(hbarBalance.replace(/,/g, "")) || 0
+    : parseFloat(liveBalances[selectedToken.tokenId]?.replace(/,/g, "") || "0");
   const grossAmount = parseFloat(amount || "0");
   const protocolFee = grossAmount * 0.0025;
   const networkFee = 0.005; // Mock HBAR fee
@@ -202,20 +175,7 @@ export default function TransferView() {
             <div className="flex items-center gap-3 pt-2">
               <span className="text-[10px] font-bold text-gray-600 uppercase">Recent:</span>
               <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
-                {RECENT_CONTACTS.map((contact) => (
-                  <button 
-                    key={contact.id}
-                    onClick={() => setRecipient(contact.id)}
-                    className="flex-shrink-0 bg-black/20 border border-white/5 hover:border-velo-cyan/30 rounded-xl px-3 py-1.5 flex items-center gap-2 transition-all group"
-                  >
-                    <div className="w-5 h-5 rounded bg-white/5 flex items-center justify-center text-[8px] font-bold text-gray-500 group-hover:text-velo-cyan">
-                      {contact.name.substring(0, 1)}
-                    </div>
-                    <span className="text-[10px] font-black text-gray-400 group-hover:text-white transition-colors uppercase tracking-tight">
-                      {contact.name}
-                    </span>
-                  </button>
-                ))}
+                <span className="text-[10px] font-medium text-gray-500 italic py-1.5">No recent transfers</span>
               </div>
             </div>
           </div>

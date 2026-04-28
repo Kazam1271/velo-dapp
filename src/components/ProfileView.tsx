@@ -78,7 +78,7 @@ export default function ProfileView() {
         setVeloId(id);
 
         // Load persisted profile
-        const savedUsername = localStorage.getItem(`username_${accountId}`);
+        const savedUsername = localStorage.getItem(`velo_username_${accountId}`);
         const savedAvatar = localStorage.getItem(`avatar_${accountId}`);
         if (savedUsername) setUsername(savedUsername);
         if (savedAvatar) setAvatarUrl(savedAvatar);
@@ -357,7 +357,7 @@ export default function ProfileView() {
     setUsername(tempUsername);
     setIsEditing(false);
     if (accountId) {
-      localStorage.setItem(`username_${accountId}`, tempUsername);
+      localStorage.setItem(`velo_username_${accountId}`, tempUsername);
       toast.success("Username saved!");
     }
   };
