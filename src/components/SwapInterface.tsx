@@ -34,7 +34,7 @@ const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1
 
 // Mock Testnet WHBAR token and its underlying ERC-20/HTS contract
 const MOCK_WHBAR_TOKEN_ID = "0.0.8735222";
-const MOCK_WHBAR_CONTRACT_ID = "0.0.1505995"; // Correct WHBAR Contract ID for Testnet V2
+const MOCK_WHBAR_CONTRACT_ID = "0.0.8735222"; // The token IS the contract on this mock setup
 
 const ROUTER_V2_ABI = [
   {
@@ -252,8 +252,9 @@ export default function SwapInterface() {
         }
       });
       setPayAmount("");
+      refreshBalances(); // Immediate refresh
       
-      // 3. Wait 2 seconds for indexer and refresh
+      // 3. Wait 2 seconds for indexer and secondary refresh
       setTimeout(() => {
         refreshBalances();
       }, 2000);
