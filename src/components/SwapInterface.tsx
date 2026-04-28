@@ -304,7 +304,8 @@ export default function SwapInterface() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          hbarAmount: parseFloat(payAmount),
+          amountIn: parseFloat(payAmount),
+          tokenInId: payToken.tokenId,
           tokenOutId: recvToken.tokenId,
           userAddress: userAddress
         })

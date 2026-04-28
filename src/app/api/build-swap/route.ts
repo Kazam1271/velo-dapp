@@ -9,11 +9,12 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735221": 1.00, // USDC (Mock)
   "0.0.8734118": 1.00, // USDT (Mock)
   "0.0.8725045": 1.00, // VELO (Mock)
+  "0.0.8735222": 0.09, // WHBAR (Mock)
 };
 
 export async function POST(req: Request) {
   try {
-    const { hbarAmount, tokenOutId, userAddress } = await req.json();
+    const { amountIn, tokenInId, tokenOutId, userAddress } = await req.json();
     
     // 1. INITIALIZE HEDERA CLIENT & IDENTITIES
     const client = Client.forTestnet();
@@ -24,44 +25,60 @@ export async function POST(req: Request) {
     
     const userAccountId = AccountId.fromString(userAddress);
     const treasuryAccountId = AccountId.fromString(treasuryId);
-    const tokenId = TokenId.fromString(tokenOutId);
 
     // 2. ORACLE: Fetch real HBAR price from SaucerSwap
-    console.log("[Brokerage] Fetching live HBAR price from SaucerSwap Oracle...");
-    const priceResponse = await fetch('https://api.saucerswap.finance/tokens', {
-      headers: {
-        'x-api-key': process.env.SAUCERSWAP_API_KEY || ""
-      }
-    });
-    
-    if (!priceResponse.ok) throw new Error("Failed to fetch oracle prices from SaucerSwap.");
+    const priceResponse = await fetch('https://api.saucerswap.finance/tokens');
+    if (!priceResponse.ok) throw new Error("Failed to fetch oracle prices.");
     const tokensData = await priceResponse.json();
-    
     const whbarData = tokensData.find((t: any) => t.symbol === 'WHBAR' || t.symbol === 'HBAR');
-    const liveHbarUsd = whbarData ? parseFloat(whbarData.priceUsd) : 0.09; 
-    
-    // 3. CALCULATE PAYOUT
-    const mockPrice = MOCK_PRICES_USD[tokenOutId] || 0.10;
-    const usdValueIn = hbarAmount * liveHbarUsd;
-    const amountOut = usdValueIn / mockPrice;
-    
-    // Decimals handling
-    const decimals = (tokenOutId === "0.0.8735222" || tokenOutId === "0.0.8725045") ? 8 : 6;
-    const amountOutTiny = Math.floor(amountOut * Math.pow(10, decimals));
+    const liveHbarUsd = whbarData ? parseFloat(whbarData.priceUsd) : 0.08; 
 
-    console.log(`[Brokerage] Oracle: $${usdValueIn.toFixed(2)} USD in -> ${amountOut.toFixed(4)} tokens out`);
+    // 3. CALCULATE PAYOUT
+    // Logic: Inbound USD Value = Outbound USD Value
+    let usdValueIn = 0;
+    if (tokenInId === "NATIVE") {
+      usdValueIn = amountIn * liveHbarUsd;
+    } else {
+      const priceIn = MOCK_PRICES_USD[tokenInId] || 0.10;
+      usdValueIn = amountIn * priceIn;
+    }
+
+    let amountOut = 0;
+    if (tokenOutId === "NATIVE") {
+      amountOut = usdValueIn / liveHbarUsd;
+    } else {
+      const priceOut = MOCK_PRICES_USD[tokenOutId] || 0.10;
+      amountOut = usdValueIn / priceOut;
+    }
 
     // 4. CONSTRUCT ATOMIC TRANSACTION
-    const tx = new TransferTransaction()
-      .addHbarTransfer(userAccountId, new Hbar(-hbarAmount))
-      .addHbarTransfer(treasuryAccountId, new Hbar(hbarAmount))
-      .addTokenTransfer(tokenId, treasuryAccountId, -amountOutTiny)
-      .addTokenTransfer(tokenId, userAccountId, amountOutTiny)
-      .setTransactionId(TransactionId.generate(userAccountId)) // User is the payer
-      .setNodeAccountIds([new AccountId(3)]); // Stick to node 3 for consistency
+    const tx = new TransferTransaction();
 
-    // 5. FREEZE AND CO-SIGN
-    tx.freezeWith(client);
+    // ── Handle Input Side ──
+    if (tokenInId === "NATIVE") {
+      tx.addHbarTransfer(userAccountId, new Hbar(-amountIn))
+        .addHbarTransfer(treasuryAccountId, new Hbar(amountIn));
+    } else {
+      const decimalsIn = (tokenInId === "0.0.8735222" || tokenInId === "0.0.8725045") ? 8 : 6;
+      const amountInTiny = Math.floor(amountIn * Math.pow(10, decimalsIn));
+      tx.addTokenTransfer(TokenId.fromString(tokenInId), userAccountId, -amountInTiny)
+        .addTokenTransfer(TokenId.fromString(tokenInId), treasuryAccountId, amountInTiny);
+    }
+
+    // ── Handle Output Side ──
+    if (tokenOutId === "NATIVE") {
+      tx.addHbarTransfer(treasuryAccountId, new Hbar(-amountOut))
+        .addHbarTransfer(userAccountId, new Hbar(amountOut));
+    } else {
+      const decimalsOut = (tokenOutId === "0.0.8735222" || tokenOutId === "0.0.8725045") ? 8 : 6;
+      const amountOutTiny = Math.floor(amountOut * Math.pow(10, decimalsOut));
+      tx.addTokenTransfer(TokenId.fromString(tokenOutId), treasuryAccountId, -amountOutTiny)
+        .addTokenTransfer(TokenId.fromString(tokenOutId), userAccountId, amountOutTiny);
+    }
+
+    tx.setTransactionId(TransactionId.generate(userAccountId))
+      .setNodeAccountIds([new AccountId(3)])
+      .freezeWith(client);
     
     // Treasury co-signs the transaction
     const signedTx = await tx.sign(treasuryKey);
@@ -71,7 +88,7 @@ export async function POST(req: Request) {
       success: true, 
       transactionBytes: txBytes,
       amountOut: amountOut,
-      rate: `1 HBAR = $${liveHbarUsd.toFixed(4)} USD`
+      rate: tokenInId === "NATIVE" ? `1 HBAR = $${liveHbarUsd.toFixed(4)} USD` : `Brokerage Exchange`
     });
 
   } catch (error: any) {
