@@ -16,10 +16,13 @@ import {
   Transaction,
   TransferTransaction, 
   Hbar, 
+  HbarUnit,
   TransactionId, 
   AccountId, 
   TokenId,
-  TokenAssociateTransaction 
+  TokenAssociateTransaction,
+  ContractExecuteTransaction,
+  ContractId
 } from "@hiero-ledger/sdk";
 
 // ─────────────────────────────────────────────────────────────────
@@ -28,6 +31,10 @@ import {
 const SAUCER_ROUTER_V2_NATIVE = "0.0.1414040";
 const SAUCER_ROUTER_V2_EVM = "0x00000000000000000000000000000000003c37ea";
 const WHBAR_EVM_ADDRESS = "0x000000000000000000000000000000000016FBAB"; // 0.0.1505995
+
+// Mock Testnet WHBAR token and its underlying ERC-20/HTS contract
+const MOCK_WHBAR_TOKEN_ID = "0.0.8735222";
+const MOCK_WHBAR_CONTRACT_ID = "0.0.8735222"; // The token IS the contract on testnet
 
 const ROUTER_V2_ABI = [
   {
@@ -152,6 +159,8 @@ export default function SwapInterface() {
     }
   };
 
+  const isWrapPair = payToken.tokenId === "NATIVE" && recvToken.tokenId === MOCK_WHBAR_TOKEN_ID;
+
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
@@ -164,6 +173,14 @@ export default function SwapInterface() {
 
     const payPrice = getTokenPriceUsd(payToken.symbol, prices);
     setPayUsd((amount * payPrice).toFixed(2));
+
+    // ── 1:1 Wrap Bypass ──────────────────────────────────────────
+    if (isWrapPair) {
+      setReceiveAmount(amount.toFixed(8));
+      setReceiveUsd((amount * payPrice).toFixed(2));
+      setIsQuoting(false);
+      return;
+    }
 
     setIsQuoting(true);
     const handler = setTimeout(async () => {
@@ -186,7 +203,59 @@ export default function SwapInterface() {
       setIsQuoting(false);
     }, 600);
     return () => clearTimeout(handler);
-  }, [payAmount, payToken, recvToken, prices]);
+  }, [payAmount, payToken, recvToken, prices, isWrapPair]);
+
+  // ── Wrap Handler (HBAR → WHBAR via deposit()) ────────────────
+  const handleWrap = async () => {
+    if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
+
+    setIsSwapping(true);
+    const toastId = toast.loading("Preparing HBAR wrap...");
+    try {
+      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
+
+      // 1. Associate WHBAR if not yet associated
+      if (!isAssociated) {
+        toast.loading("Associating WHBAR token...", { id: toastId });
+        const associateTx = new TokenAssociateTransaction()
+          .setAccountId(AccountId.fromString(userAddress))
+          .setTokenIds([TokenId.fromString(MOCK_WHBAR_TOKEN_ID)]);
+        await (associateTx as any).freezeWithSigner(signer);
+        await (associateTx as any).executeWithSigner(signer);
+        toast.success("WHBAR Associated!", { id: toastId });
+        refreshBalances();
+      }
+
+      // 2. Execute deposit() on the WHBAR contract — payable with HBAR
+      toast.loading("Waiting for your signature to wrap...", { id: toastId });
+      const tinybars = Math.floor(parseFloat(payAmount) * 100_000_000);
+
+      const wrapTx = new ContractExecuteTransaction()
+        .setContractId(ContractId.fromString(MOCK_WHBAR_CONTRACT_ID))
+        .setGas(100_000)
+        .setFunction("deposit")
+        .setPayableAmount(Hbar.fromTinybars(tinybars));
+
+      await (wrapTx as any).freezeWithSigner(signer);
+      const result = await (wrapTx as any).executeWithSigner(signer);
+
+      toast.success("Wrap Successful!", {
+        id: toastId,
+        description: `${payAmount} HBAR → ${payAmount} WHBAR`,
+        action: {
+          label: "View HashScan",
+          onClick: () => window.open(`https://hashscan.io/testnet/transaction/${result?.transactionId}`, "_blank")
+        }
+      });
+      setPayAmount("");
+      refreshBalances();
+    } catch (error: any) {
+      console.error("[Wrap] Error:", error);
+      toast.error("Wrap Failed", { id: toastId, description: error.message });
+    } finally {
+      setIsSwapping(false);
+    }
+  };
 
   const handleSwap = async () => {
     if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
@@ -397,11 +466,18 @@ export default function SwapInterface() {
         </div>
 
         <button
-          onClick={handleSwap}
+          onClick={isWrapPair ? handleWrap : handleSwap}
           disabled={!isConnected || isSwapping}
           className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
         >
-          {isSwapping ? <RefreshCw size={20} className="animate-spin" /> : isConnected ? (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`) : "CONNECT WALLET"}
+          {isSwapping 
+            ? <RefreshCw size={20} className="animate-spin" /> 
+            : !isConnected 
+              ? "CONNECT WALLET"
+              : isWrapPair
+                ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount || "0"} HBAR → WHBAR`)
+                : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
+          }
         </button>
 
         <div className="text-center text-[10px] text-gray-500 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
