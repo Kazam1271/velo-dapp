@@ -26,7 +26,7 @@ export const TOKEN_LIST: Token[] = [
     tokenId: "0.0.8725045",
     mainnetId: "0.0.0", // TBD
     badge: "new",
-    iconBg: "#06b6d4",
+    iconBg: "#000000",
   },
   {
     symbol: "SAUCE",
