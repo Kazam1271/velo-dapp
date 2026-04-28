@@ -30,6 +30,7 @@ interface TokenBalance {
   ticker: string;
   balance: string;
   value: string;
+  price: number;
   icon: string;
   iconBg?: string;
 }
@@ -151,13 +152,15 @@ export default function ProfileView() {
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
           const hbarData = tokenDataMap.get('WHBAR') || tokenDataMap.get('HBAR') || { price: 0.08, icon: '/hbar.png' };
+          const hbarPrice = parseFloat(hbarData.price?.toString() || '0.08');
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
               name: 'Hedera', 
               ticker: 'HBAR', 
               balance: hbarBalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), 
-              value: `$${(hbarBalValue * hbarData.price).toFixed(2)}`, 
+              value: `$${(hbarBalValue * hbarPrice).toFixed(2)}`, 
+              price: hbarPrice,
               icon: hbarData.icon || '/hbar.png',
               iconBg: '#000000'
             }
@@ -181,14 +184,18 @@ export default function ProfileView() {
                   const trueBalance = token.balance / Math.pow(10, decimals);
                   if (trueBalance === 0) return null;
 
+                  // VELO wildcard: hardcode $0.01 target price until pool launches
+                  const isVelo = cleanSymbol.toUpperCase() === 'VELO';
                   const saucerData = tokenDataMap.get(cleanSymbol) || { price: 0, icon: null };
-                  const calculatedUsdValue = trueBalance * parseFloat(saucerData.price.toString());
+                  const tokenPrice = isVelo ? 0.01 : parseFloat(saucerData.price?.toString() || '0');
+                  const calculatedUsdValue = trueBalance * tokenPrice;
 
                   return {
                     name: tokenInfo.name || `Token ${token.token_id.split('.').pop()}`,
                     ticker: rawSymbol,
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
                     value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
+                    price: tokenPrice,
                     icon: saucerData.icon || "/logov.png",
                     iconBg: saucerData.iconBg || '#000000'
                   };
@@ -510,6 +517,12 @@ export default function ProfileView() {
                         <div className="text-right">
                           <p className="text-sm font-black text-white">{token.balance}</p>
                           <p className="text-[11px] font-bold text-velo-cyan/60">{token.value}</p>
+                          <p className="text-[10px] text-gray-600 font-mono">
+                            {token.price > 0 
+                              ? `$${token.price < 0.01 ? token.price.toFixed(6) : token.price.toFixed(4)} / token`
+                              : token.ticker.replace('(Mock)','').trim() === 'VELO' ? '$0.01 target' : '—'
+                            }
+                          </p>
                         </div>
                       </div>
                     ))}
