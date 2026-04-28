@@ -349,27 +349,33 @@ export default function ProfileView() {
         const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
         const ipfsUrl = `${gatewayUrl}${data.IpfsHash}`;
         
-        // 5. Update state and save the permanent link to Supabase
-        setAvatarUrl(ipfsUrl);
+        // 5. Save to Supabase immediately
         if (accountId) {
-          try {
-            await supabase.from('profiles').upsert({ 
+          const { error: dbError } = await supabase
+            .from('profiles')
+            .upsert({ 
               wallet_id: accountId, 
               avatar_url: ipfsUrl 
             }, { onConflict: 'wallet_id' });
-          } catch (err) {
-            console.error("Error saving avatar to Supabase:", err);
+
+          if (dbError) {
+            console.error("Supabase Save Error:", dbError);
+            toast.error("Image uploaded, but failed to link to profile.");
+            return;
           }
         }
+        
+        // 6. Update the local UI state ONLY after DB success
+        setAvatarUrl(ipfsUrl);
         toast.success("Profile picture saved globally!");
-        console.log("Successfully pinned to IPFS:", ipfsUrl);
+        console.log("Successfully pinned and persisted:", ipfsUrl);
       } else {
         throw new Error(data.error || "Upload failed");
       }
     } catch (error: any) {
       console.error("Error uploading to IPFS:", error);
       toast.error(`Upload failed: ${error.message}`);
-      // Revert to placeholder if failed
+      // Revert if failed
       setAvatarUrl(null);
     }
   };
