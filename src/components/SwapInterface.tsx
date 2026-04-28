@@ -42,7 +42,7 @@ export default function SwapInterface() {
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
   const [payToken, setPayToken] = useState<Token>(TOKEN_LIST[0]); // HBAR
-  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[4]); // BONZO
+  const [recvToken, setRecvToken] = useState<Token>(TOKEN_LIST[1]); // VELO
   const [isQuoting, setIsQuoting] = useState(false);
   const [payUsd, setPayUsd] = useState("0.00");
   const [receiveUsd, setReceiveUsd] = useState("0.00");
