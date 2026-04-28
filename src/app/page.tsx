@@ -51,7 +51,7 @@ export default function LandingPage() {
             <img
               src="/logo.png"
               alt="Velo"
-              className="h-32 md:h-48 w-auto object-contain drop-shadow-[0_0_40px_rgba(34,211,238,0.55)] select-none"
+              className="h-52 md:h-72 w-auto object-contain drop-shadow-[0_0_40px_rgba(34,211,238,0.55)] select-none"
               draggable={false}
             />
           </motion.div>
