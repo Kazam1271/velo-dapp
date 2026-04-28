@@ -150,6 +150,16 @@ export default function ProfileView() {
                 });
               }
             });
+
+            // Special Case: Ensure HBAR price is explicitly set from SaucerSwap
+            const saucerHbar = saucerTokens.find((t: any) => t.symbol === "HBAR");
+            if (saucerHbar) {
+              tokenDataMap.set("HBAR", {
+                price: saucerHbar.priceUsd || 0,
+                icon: "/hbar.png",
+                iconBg: "#1a1a1a"
+              });
+            }
           }
         } catch (dataError) {
           console.error("SaucerSwap data fetch failed, defaulting to $0:", dataError);
@@ -161,7 +171,7 @@ export default function ProfileView() {
           const balData = await balRes.json();
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
-          const hbarData = tokenDataMap.get('WHBAR') || tokenDataMap.get('HBAR') || { price: 0.08, icon: '/hbar.png' };
+          const hbarData = tokenDataMap.get('HBAR') || tokenDataMap.get('WHBAR') || { price: 0.08, icon: '/hbar.png' };
           const hbarPrice = parseFloat(hbarData.price?.toString() || '0.08');
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
