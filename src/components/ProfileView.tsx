@@ -127,16 +127,26 @@ export default function ProfileView() {
 
         try {
           const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
+          const { TOKEN_LIST } = await import("@/config/tokens");
+          
+          // Pre-populate with local tokens first
+          TOKEN_LIST.forEach(lt => {
+            tokenDataMap.set(lt.symbol, {
+              price: 0,
+              icon: lt.logoURI,
+              iconBg: lt.iconBg
+            });
+          });
+
           if (saucerResponse.ok) {
             const saucerTokens = await saucerResponse.json();
-            const { TOKEN_LIST } = await import("@/config/tokens");
             saucerTokens.forEach((t: any) => {
               if (t.symbol) {
-                const localToken = TOKEN_LIST.find(lt => lt.symbol === t.symbol);
+                const existing = tokenDataMap.get(t.symbol);
                 tokenDataMap.set(t.symbol, {
                   price: t.priceUsd || 0,
-                  icon: localToken?.logoURI || (t.icon ? `https://www.saucerswap.finance${t.icon}` : null),
-                  iconBg: localToken?.iconBg || null
+                  icon: existing?.icon || (t.icon ? `https://www.saucerswap.finance${t.icon}` : null),
+                  iconBg: existing?.iconBg || null
                 });
               }
             });
@@ -184,6 +194,10 @@ export default function ProfileView() {
                   const trueBalance = token.balance / Math.pow(10, decimals);
                   if (trueBalance === 0) return null;
 
+                  // Match by ID for precise icons
+                  const { TOKEN_LIST } = await import("@/config/tokens");
+                  const localToken = TOKEN_LIST.find(lt => lt.tokenId === token.token_id);
+                  
                   // VELO wildcard: hardcode $0.01 target price until pool launches
                   const isVelo = cleanSymbol.toUpperCase() === 'VELO';
                   const saucerData = tokenDataMap.get(cleanSymbol) || { price: 0, icon: null };
@@ -196,8 +210,8 @@ export default function ProfileView() {
                     balance: trueBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 6 }),
                     value: calculatedUsdValue > 0 ? `$${calculatedUsdValue.toFixed(2)}` : "$0.00",
                     price: tokenPrice,
-                    icon: saucerData.icon || "/logov.png",
-                    iconBg: saucerData.iconBg || '#000000'
+                    icon: localToken?.logoURI || saucerData.icon || "/logov.png",
+                    iconBg: localToken?.iconBg || saucerData.iconBg || '#000000'
                   };
                 } catch (error) {
                   console.error(`Failed to process token ${token.token_id}:`, error);
