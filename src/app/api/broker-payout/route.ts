@@ -25,7 +25,9 @@ export async function POST(req: Request) {
 
     // 1. Verify Transaction via Mirror Node with Persistent Polling
     const treasuryId = process.env.TREASURY_ID!;
-    const mirrorUrl = `https://testnet.mirrornode.hedera.com/api/v1/transactions/${transactionId}`;
+    // Normalize Tx ID: Mirror Node expects 0.0.xxxx-sssss-nnnnn instead of 0.0.xxxx@sssss.nnnnn
+    const normalizedTxId = transactionId.replace(/[@.]/g, "-");
+    const mirrorUrl = `https://testnet.mirrornode.hedera.com/api/v1/transactions/${normalizedTxId}`;
     let transaction = null;
     let attempts = 0;
     const maxAttempts = 6;
