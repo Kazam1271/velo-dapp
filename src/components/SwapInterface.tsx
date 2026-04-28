@@ -207,7 +207,8 @@ export default function SwapInterface() {
 
   // ── Wrap Handler (HBAR → WHBAR via deposit()) ────────────────
   const handleWrap = async () => {
-    if (!isConnected || !userAddress || !hashconnect || !payAmount || parseFloat(payAmount) <= 0) return;
+    const amount = parseFloat(payAmount);
+    if (!isConnected || !userAddress || !hashconnect || isNaN(amount) || amount <= 0) return;
 
     setIsSwapping(true);
     const toastId = toast.loading("Preparing HBAR wrap...");
@@ -228,7 +229,7 @@ export default function SwapInterface() {
 
       // 2. Execute deposit() on the WHBAR contract — payable with HBAR
       toast.loading("Waiting for your signature to wrap...", { id: toastId });
-      const tinybars = Math.floor(parseFloat(payAmount) * 100_000_000);
+      const tinybars = Math.floor(amount * 100_000_000);
 
       const wrapTx = new ContractExecuteTransaction()
         .setContractId(ContractId.fromString(MOCK_WHBAR_CONTRACT_ID))
@@ -467,16 +468,18 @@ export default function SwapInterface() {
 
         <button
           onClick={isWrapPair ? handleWrap : handleSwap}
-          disabled={!isConnected || isSwapping}
+          disabled={!isConnected || isSwapping || !payAmount || parseFloat(payAmount) <= 0}
           className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
         >
           {isSwapping 
             ? <RefreshCw size={20} className="animate-spin" /> 
             : !isConnected 
               ? "CONNECT WALLET"
-              : isWrapPair
-                ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount || "0"} HBAR → WHBAR`)
-                : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
+              : !payAmount || parseFloat(payAmount) <= 0
+                ? "Enter an amount"
+                : isWrapPair
+                  ? (!isAssociated ? "ASSOCIATE WHBAR" : `WRAP ${payAmount} HBAR → WHBAR`)
+                  : (!isAssociated ? `ASSOCIATE ${recvToken.symbol}` : `SWAP ${payToken.symbol} → ${recvToken.symbol}`)
           }
         </button>
 
