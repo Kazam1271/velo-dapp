@@ -1,39 +1,41 @@
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
   try {
-    const data = await request.formData();
-    const file: File | null = data.get("file") as unknown as File;
+    const jwt = process.env.PINATA_JWT;
     
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    // 1. FORCE LOGGING TO THE TERMINAL
+    console.log("--- UPLOAD API HIT ---");
+    console.log("JWT Exists?", !!jwt);
+    console.log("JWT Starts With:", jwt ? jwt.substring(0, 15) : "undefined");
+
+    if (!jwt) {
+      return NextResponse.json({ error: "Server missing PINATA_JWT" }, { status: 500 });
     }
 
-    // Prepare the data for Pinata
-    const formData = new FormData();
-    formData.append("file", file);
+    const formData = await request.formData();
+    const file = formData.get('file');
+    
+    if (!file) return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
-    // Send to Pinata
     const res = await fetch("https://api.pinata.cloud/pinning/pinFileToIPFS", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.PINATA_JWT}`,
+        Authorization: `Bearer ${jwt}`,
       },
       body: formData,
     });
 
-    const pinataData = await res.json();
+    const data = await res.json();
+    console.log("Pinata Response:", data);
     
     if (!res.ok) {
-      console.error("Pinata Error:", pinataData);
-      throw new Error(pinataData.error?.details || "Failed to pin to IPFS");
+        return NextResponse.json({ error: data.error || "Pinata API Error", details: data }, { status: res.status });
     }
-
-    // Return the IPFS hash (CID) to the frontend
-    return NextResponse.json({ IpfsHash: pinataData.IpfsHash }, { status: 200 });
     
-  } catch (e: any) {
-    console.error("Upload API Error:", e);
-    return NextResponse.json({ error: e.message || "Internal Server Error" }, { status: 500 });
+    return NextResponse.json(data);
+  } catch (e) {
+    console.error("Upload API Catch Error:", e);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
