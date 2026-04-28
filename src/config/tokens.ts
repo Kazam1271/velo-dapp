@@ -77,7 +77,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "WHBAR",
     name: "Wrapped HBAR",
-    logoURI: "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/hbar.png",
+    logoURI: "/hbar.png",
     decimals: 8,
     tokenId: "0.0.8735222",
     mainnetId: "0.0.1456986",
