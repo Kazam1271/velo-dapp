@@ -132,7 +132,7 @@ export default function ProfileView() {
           // Pre-populate with local tokens first
           TOKEN_LIST.forEach(lt => {
             tokenDataMap.set(lt.symbol, {
-              price: 0,
+              price: lt.symbol === 'HBAR' ? 0.08 : 0, // Better default for HBAR
               icon: lt.logoURI,
               iconBg: lt.iconBg
             });
@@ -172,7 +172,7 @@ export default function ProfileView() {
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
           
           const hbarData = tokenDataMap.get('HBAR') || tokenDataMap.get('WHBAR') || { price: 0.08, icon: '/hbar.png' };
-          const hbarPrice = parseFloat(hbarData.price?.toString() || '0.08');
+          const hbarPrice = hbarData.price && hbarData.price > 0 ? hbarData.price : 0.08;
           const hbarBalValue = (accountBal.balance / 100000000);
           const tokens: TokenBalance[] = [
             { 
