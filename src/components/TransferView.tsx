@@ -146,8 +146,10 @@ export default function TransferView() {
           .addTokenTransfer(tokenId, AccountId.fromString(treasuryId), protocolUnits);
       }
 
+      // @ts-ignore - Bypass TS mismatch between @hiero-ledger/sdk versions
       const signer = hashconnect.getSigner(AccountId.fromString(accountId));
       const frozenTx = await transaction.freezeWithSigner(signer);
+      // @ts-ignore
       const res = await frozenTx.executeWithSigner(signer);
 
       if (res && res.receipt) {
