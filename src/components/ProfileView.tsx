@@ -55,9 +55,7 @@ export default function ProfileView() {
   
   // Profile Interactivity States
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [username, setUsername] = useState('DigitalPioneer#8761');
-  const [isEditing, setIsEditing] = useState(false);
-  const [tempUsername, setTempUsername] = useState(username);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Live Data States
@@ -71,37 +69,38 @@ export default function ProfileView() {
   
   useEffect(() => {
     if (accountId && typeof window !== 'undefined') {
-      try {
-        const id = 'V-' + window.btoa(accountId).substring(0, 8).toUpperCase();
-        setVeloId(id);
-
-        // Fetch persisted profile from Supabase
-        const fetchProfile = async () => {
-          try {
-            const { data, error } = await supabase
-              .from('profiles')
-              .select('velo_id, avatar_url')
-              .eq('wallet_id', accountId)
-              .single();
+      const fetchProfile = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('velo_id, avatar_url')
+            .eq('wallet_id', accountId)
+            .single();
+          
+          if (data && data.velo_id) {
+            setVeloId(data.velo_id);
+            if (data.avatar_url) setAvatarUrl(data.avatar_url);
+          } else if (error?.code === 'PGRST116' || !data) {
+            // Generate and save new Velo ID
+            const randomString = Math.random().toString(36).substring(2, 10).toUpperCase();
+            const newVeloId = `V-${randomString}`;
             
-            if (data) {
-              if (data.velo_id) setUsername(data.velo_id);
-              if (data.avatar_url) setAvatarUrl(data.avatar_url);
-            } else if (error && error.code !== 'PGRST116') {
-              // Ignore not found error, log others
-              console.error("Supabase fetch error:", error);
-            }
-          } catch (err) {
-            console.error("Error fetching profile from Supabase:", err);
+            await supabase.from('profiles').upsert({ 
+              wallet_id: accountId, 
+              velo_id: newVeloId 
+            });
+            setVeloId(newVeloId);
           }
-        };
+        } catch (err) {
+          console.error("Error fetching/creating profile from Supabase:", err);
+          setVeloId('V-ERROR');
+        }
+      };
 
-        fetchProfile();
-      } catch (e) {
-        setVeloId('V-IDENTITY');
-      }
+      fetchProfile();
     } else {
       setVeloId('Not Connected');
+      setAvatarUrl(null);
     }
   }, [accountId]);
 
@@ -375,22 +374,7 @@ export default function ProfileView() {
     }
   };
 
-  const handleSaveUsername = async () => {
-    setUsername(tempUsername);
-    setIsEditing(false);
-    if (accountId) {
-      try {
-        await supabase.from('profiles').upsert({ 
-          wallet_id: accountId, 
-          velo_id: tempUsername 
-        }, { onConflict: 'wallet_id' });
-        toast.success("Username saved globally!");
-      } catch (err) {
-        console.error("Error saving username to Supabase:", err);
-        toast.error("Failed to save username");
-      }
-    }
-  };
+
 
   const handleCopy = (text: string, type: 'id' | 'addr') => {
     navigator.clipboard.writeText(text);
@@ -427,36 +411,30 @@ export default function ProfileView() {
               </div>
 
               {/* Name Section */}
-              <div className="flex items-center gap-3">
-                {isEditing ? (
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="text"
-                      value={tempUsername}
-                      onChange={(e) => setTempUsername(e.target.value)}
-                      className="bg-black/40 border border-velo-cyan/50 rounded-xl px-4 py-2 text-xl font-bold text-white focus:outline-none focus:ring-2 focus:ring-velo-cyan/30 w-64"
-                      autoFocus
-                    />
-                    <button onClick={handleSaveUsername} className="p-2 rounded-xl bg-velo-green/20 text-velo-green hover:bg-velo-green/30 transition-all"><Check size={18} /></button>
-                    <button onClick={() => { setTempUsername(username); setIsEditing(false); }} className="p-2 rounded-xl bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-all"><X size={18} /></button>
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Global Velo ID</p>
+                <div className="flex items-center gap-3">
+                  <div className="bg-slate-900/50 border border-slate-800 rounded-lg py-3 px-5 text-velo-cyan font-mono tracking-widest text-xl shadow-inner">
+                    {veloId}
                   </div>
-                ) : (
-                  <>
-                    <h1 className="text-3xl font-black tracking-tight">{username}</h1>
-                    <button onClick={() => setIsEditing(true)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all"><Edit2 size={16} /></button>
-                  </>
-                )}
+                  <button 
+                    onClick={() => handleCopy(veloId, 'id')}
+                    className="p-3 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition-all border border-white/5 shadow-md group"
+                    title="Copy Velo ID"
+                  >
+                    {copiedId ? <Check size={20} className="text-velo-green" /> : <Copy size={20} className="group-hover:scale-110 transition-transform" />}
+                  </button>
+                </div>
               </div>
-
               {/* ID & Address Section */}
               <div className="grid grid-cols-2 gap-4 w-full pt-6 border-t border-white/5">
-                <button onClick={() => handleCopy(veloId, 'id')} className="text-center group">
-                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 group-hover:text-velo-cyan transition-colors">Velo ID</p>
-                  <div className="flex items-center justify-center gap-1.5 bg-black/20 py-2 rounded-xl border border-white/5 group-hover:border-velo-cyan/30 transition-all">
-                    <span className="text-xs font-mono text-white/90">{veloId}</span>
-                    {copiedId ? <Check size={12} className="text-velo-green" /> : <Copy size={12} className="text-gray-600" />}
+                <div className="text-center">
+                  <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1">Status</p>
+                  <div className="flex items-center justify-center gap-2 bg-black/20 py-2 rounded-xl border border-white/5">
+                    <div className="w-2 h-2 rounded-full bg-velo-green glow-green"></div>
+                    <span className="text-xs font-bold text-white/90">Verified</span>
                   </div>
-                </button>
+                </div>
                 <button onClick={() => handleCopy(accountId || '', 'addr')} className="text-center group">
                   <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em] mb-1 group-hover:text-velo-cyan transition-colors">Wallet</p>
                   <div className="flex items-center justify-center gap-1.5 bg-black/20 py-2 rounded-xl border border-white/5 group-hover:border-velo-cyan/30 transition-all">
