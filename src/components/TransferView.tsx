@@ -38,6 +38,11 @@ export default function TransferView() {
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [balances, setBalances] = useState<Record<string, number>>({});
+  
+  // Smart Resolver States
+  const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
+  const [isResolving, setIsResolving] = useState(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   // Mock balance fetching
   useEffect(() => {
@@ -48,6 +53,75 @@ export default function TransferView() {
       });
     }
   }, [accountId]);
+
+  // Smart Input Resolver
+  useEffect(() => {
+    const resolveInput = async () => {
+      const input = recipient.trim();
+      if (!input) {
+        setResolvedAddress(null);
+        setResolveError(null);
+        setIsResolving(false);
+        return;
+      }
+
+      setIsResolving(true);
+      setResolveError(null);
+      setResolvedAddress(null);
+
+      // Check 1: Direct Address
+      if (/^0\.0\.\d+$/.test(input)) {
+        setResolvedAddress(input);
+        setIsResolving(false);
+        return;
+      }
+
+      // Check 2: Recent contacts
+      const recentMatch = RECENT_CONTACTS.find(c => c.name.toLowerCase() === input.toLowerCase());
+      if (recentMatch) {
+        setResolvedAddress(recentMatch.id);
+        setIsResolving(false);
+        return;
+      }
+
+      // Check 3: Local Storage Mock
+      try {
+        let foundId: string | null = null;
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && key.startsWith("username_")) {
+            const accId = key.replace("username_", "");
+            const storedUsername = localStorage.getItem(key);
+            let veloId = "";
+            try {
+              veloId = "V-" + window.btoa(accId).substring(0, 8).toUpperCase();
+            } catch (e) {}
+
+            if (
+              storedUsername?.toLowerCase() === input.toLowerCase() ||
+              veloId.toLowerCase() === input.toLowerCase()
+            ) {
+              foundId = accId;
+              break;
+            }
+          }
+        }
+
+        if (foundId) {
+          setResolvedAddress(foundId);
+        } else {
+          setResolveError("Invalid address or Velo ID not found");
+        }
+      } catch (error) {
+        setResolveError("Failed to resolve destination");
+      }
+
+      setIsResolving(false);
+    };
+
+    const debounceTimer = setTimeout(resolveInput, 600);
+    return () => clearTimeout(debounceTimer);
+  }, [recipient]);
 
   const currentBalance = balances[selectedToken.tokenId] || 0;
   const grossAmount = parseFloat(amount || "0");
@@ -69,7 +143,7 @@ export default function TransferView() {
     }
   };
 
-  const isReady = recipient.trim().length > 0 && parseFloat(amount) > 0;
+  const isReady = parseFloat(amount) > 0 && resolvedAddress !== null && !isResolving && !resolveError;
 
   return (
     <div className="space-y-6">
@@ -89,7 +163,7 @@ export default function TransferView() {
           <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-velo-cyan/50 to-transparent" />
           
           {/* Recipient Section */}
-          <div className="space-y-3">
+          <div className="space-y-1">
             <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em] ml-1">Send to</label>
             <div className="relative group">
               <input 
@@ -105,6 +179,23 @@ export default function TransferView() {
               >
                 <Clipboard size={18} />
               </button>
+            </div>
+
+            {/* Resolution Status */}
+            <div className="h-5 flex items-center ml-2">
+              {isResolving ? (
+                <div className="flex items-center gap-1.5 text-gray-500">
+                  <div className="w-3 h-3 border-2 border-velo-cyan border-t-transparent rounded-full animate-spin" />
+                  <span className="text-[10px] font-medium">Resolving...</span>
+                </div>
+              ) : resolveError && recipient.length > 0 ? (
+                <span className="text-[10px] font-medium text-red-400">{resolveError}</span>
+              ) : resolvedAddress && resolvedAddress !== recipient.trim() ? (
+                <div className="flex items-center gap-1.5 text-velo-green">
+                  <Check size={12} />
+                  <span className="text-[10px] font-medium font-mono">Resolved: {resolvedAddress}</span>
+                </div>
+              ) : null}
             </div>
 
             {/* Recent Contacts */}
@@ -232,7 +323,7 @@ export default function TransferView() {
                 <div className="bg-black/30 rounded-3xl p-5 border border-white/5 space-y-4">
                   <div className="space-y-1">
                     <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Recipient</p>
-                    <p className="text-sm font-mono text-white break-all bg-white/5 p-2 rounded-xl border border-white/5">{recipient}</p>
+                    <p className="text-sm font-mono text-white break-all bg-white/5 p-2 rounded-xl border border-white/5">{resolvedAddress}</p>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
