@@ -40,7 +40,7 @@ export const TOKEN_LIST: Token[] = [
   {
     symbol: "USDC",
     name: "USD Coin",
-    logoURI: "https://raw.githubusercontent.com/saucerswaplabs/assets/master/tokens/usdc.png",
+    logoURI: "/USDC.png",
     decimals: 6,
     tokenId: "0.0.8735221",
     mainnetId: "0.0.456858",
