@@ -13,21 +13,13 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 const SOURCE_ACCOUNTS = [
     {
-        id: "0.0.8642991",
-        key: "0xa05b1fbf37fc370935a1227b332cb97fa632714a007f74591af57ad2ff864cea"
-    },
-    {
-        id: "0.0.8642997",
-        key: "0xe25715ee90e23061c806d71564b27197f5cc2de0018d574a7a0812e8a0616b36"
-    },
-    {
-        id: "0.0.8752628",
-        key: "0xc98a40a0c634c5967db5d776423345f21e526b92811bec116230b1d416490926"
+        id: "0.0.8812039",
+        key: "0x69c26d38ffd6089dce737d43150760fc439763ae7f435d5afd5f29e2759c85fa"
     }
 ];
 
 async function main() {
-    const treasuryId = process.env.TREASURY_ID;
+    const treasuryId = "0.0.8642596";
     
     if (!treasuryId) {
         console.error("❌ ERROR: TREASURY_ID not found in .env.local");
@@ -44,7 +36,7 @@ async function main() {
             console.log(`[${source.id}] Initializing transfer...`);
             
             const cleanKey = source.key.startsWith("0x") ? source.key.slice(2) : source.key;
-            const privateKey = PrivateKey.fromStringECDSA(cleanKey);
+            const privateKey = PrivateKey.fromString(cleanKey);
             
             // Set operator to the source account so we can sign the transfer
             client.setOperator(source.id, privateKey);

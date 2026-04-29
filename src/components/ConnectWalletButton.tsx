@@ -4,7 +4,7 @@ import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { useState, useEffect } from "react";
 
 export const ConnectWalletButton = () => {
-  const { isConnected, pairingData, hashconnect, disconnect } = useHashConnect();
+  const { isConnected, pairingData, hashconnect, disconnect, isInitialized } = useHashConnect();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -41,6 +41,17 @@ export const ConnectWalletButton = () => {
       >
         <div className="w-2 h-2 rounded-full bg-cyan-400 group-hover:animate-pulse" />
         {accountId} (Disconnect)
+      </button>
+    );
+  }
+
+  if (!isInitialized) {
+    return (
+      <button 
+        disabled
+        className="bg-gray-800 text-gray-500 font-bold px-7 py-3 rounded-2xl cursor-wait text-sm tracking-tight"
+      >
+        Loading...
       </button>
     );
   }

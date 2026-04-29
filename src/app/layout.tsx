@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
 import "./globals.css";
+
+// Polyfill Buffer for HashConnect/WalletConnect compatibility
+if (typeof window !== 'undefined') {
+  window.Buffer = window.Buffer || require('buffer').Buffer;
+}
 import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
 

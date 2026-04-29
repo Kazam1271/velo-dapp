@@ -22,6 +22,7 @@ interface HashConnectContextType {
     balance: string;
     isRefreshingBalance: boolean;
     isConnected: boolean;
+    isInitialized: boolean;
     connect: () => void;
     disconnect: () => void;
 }
@@ -41,6 +42,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [pairingData, setPairingData] = useState<SessionData | null>(null);
     const [balance, setBalance] = useState("0.00");
     const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
+    const [isInitialized, setIsInitialized] = useState(false);
 
     // Derived states
     const hederaAccountId = pairingData?.accountIds?.[0] || null;
@@ -95,6 +97,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                 });
 
                 await hashconnect.init();
+                setIsInitialized(true);
                 console.log("[HashConnect] Initialization complete");
             } catch (error) {
                 console.error("[HashConnect] Init error:", error);
@@ -117,7 +120,10 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     }, [fetchBalance]);
 
     const connect = () => {
-        if (!hashconnect) return;
+        if (!hashconnect || !isInitialized) {
+            toast.error("Wallet service is still initializing. Please wait a moment.");
+            return;
+        }
         try {
             // Correct v3 API: triggers the universal pairing modal
             hashconnect.openPairingModal();
@@ -142,6 +148,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             balance, 
             isRefreshingBalance,
             isConnected,
+            isInitialized,
             connect,
             disconnect 
         }}>
