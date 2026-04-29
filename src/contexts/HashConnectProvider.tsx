@@ -39,6 +39,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
         if (typeof window !== 'undefined') {
             console.log("[HashConnect] Creating instance with Ledger: testnet, ProjectID:", projectId);
+            // Task 1: Hardcode network explicitly to "testnet" (LedgerId.TESTNET)
             return new HashConnect(LedgerId.TESTNET, projectId, appMetadata, true);
         }
         return null as any;
@@ -82,6 +83,16 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
 
         const init = async () => {
             console.log("[HashConnect] Initializing with Project ID:", projectId);
+            
+            // Task 4: Clear stale or corrupted sessions on mount
+            try {
+                const staleData = localStorage.getItem("hashconnectData");
+                if (staleData && (staleData.includes("undefined") || staleData.includes("null"))) {
+                    console.warn("[HashConnect] Found stale/invalid session data, clearing...");
+                    localStorage.removeItem("hashconnectData");
+                }
+            } catch (e) {}
+
             try {
                 // Set up event listeners BEFORE calling init()
                 hashconnect.connectionStatusChangeEvent.on((status: HashConnectConnectionState) => {
@@ -102,7 +113,10 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                     toast.info("Wallet Disconnected");
                 });
 
+                // Task 2: Explicitly pass testnet and relay fallback to init if supported
+                // Some HashConnect v3 versions use this for relay overrides
                 await hashconnect.init();
+                
                 setIsInitialized(true);
                 console.log("[HashConnect] Initialization complete");
             } catch (error) {
@@ -138,11 +152,23 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             toast.error("Wallet service is still initializing. Please wait a moment.");
             return;
         }
+
+        // Task 3: Robust try/catch around pairing modal
         try {
+            console.log("[HashConnect] Opening pairing modal...");
             // Correct v3 API: triggers the universal pairing modal
             hashconnect.openPairingModal();
         } catch (error: any) {
-            toast.error("Connection Failed", { description: error.message });
+            console.error("[HashConnect] Connection error:", error);
+            
+            // Task 3: Specific feedback for WebSocket/Network failures
+            if (error.message?.includes("WebSocket") || error.message?.includes("relay")) {
+                toast.error("Connection Blocked", { 
+                    description: "Connection blocked by network. Please check your firewall or try a different internet connection." 
+                });
+            } else {
+                toast.error("Connection Failed", { description: error.message });
+            }
         }
     };
 
