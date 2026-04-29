@@ -8,10 +8,11 @@ const appMetadata = {
     name: "Velo",
     description: "The Premier Hedera Trading Desk",
     icons: ["https://velo-swart.vercel.app/logov.png"], 
-    url: "https://velo-swart.vercel.app"
+    url: "https://veloexchange.org"
 };
 
 const projectId = "77347672d58ccce678cc86eee18c5918";
+const network = "testnet"; // Forced constant
 
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
