@@ -47,7 +47,9 @@ interface ActivityItem {
 }
 
 export default function ProfileView() {
-  const { pairingData, isConnected } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const pairingData = hashconnectContext?.pairingData;
+  const isConnected = hashconnectContext?.isConnected;
   const accountId = pairingData?.accountIds?.[0] || null;
   
   const [activeTab, setActiveTab] = useState<'portfolio' | 'activity'>('portfolio');

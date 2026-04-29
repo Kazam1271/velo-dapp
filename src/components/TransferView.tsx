@@ -22,7 +22,9 @@ import { supabase } from "@/lib/supabase";
 import { TransferTransaction, Hbar, TokenId, AccountId } from "@hiero-ledger/sdk";
 
 export default function TransferView() {
-  const { pairingData, hashconnect } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const pairingData = hashconnectContext?.pairingData;
+  const hashconnect = hashconnectContext?.hashconnect;
   const accountId = pairingData?.accountIds[0] || null;
 
   const [recipient, setRecipient] = useState("");

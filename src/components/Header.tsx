@@ -13,7 +13,12 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const { state, pairingData, balance, isConnected, disconnect } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const state = hashconnectContext?.state;
+  const pairingData = hashconnectContext?.pairingData;
+  const balance = hashconnectContext?.balance || "0.00";
+  const isConnected = hashconnectContext?.isConnected;
+  const disconnect = hashconnectContext?.disconnect || (() => {});
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
   // ── Fetch live HBAR price ──────────────────────────────────

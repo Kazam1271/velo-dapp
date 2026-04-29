@@ -35,7 +35,13 @@ const TREASURY_ID = "0.0.8642596";
 // Main Component
 // ─────────────────────────────────────────────────────────────────
 export default function SwapInterface() {
-  const { hashconnect, state, pairingData, isConnected, balance, isRefreshingBalance } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const hashconnect = hashconnectContext?.hashconnect;
+  const state = hashconnectContext?.state;
+  const pairingData = hashconnectContext?.pairingData;
+  const isConnected = hashconnectContext?.isConnected;
+  const balance = hashconnectContext?.balance || "0.00";
+  const isRefreshingBalance = hashconnectContext?.isRefreshingBalance || false;
   const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
 
   const [isSwapping, setIsSwapping] = useState(false);
