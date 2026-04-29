@@ -2,7 +2,7 @@
 
 import { Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 import { HashConnectConnectionState } from "hashconnect";
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import Image from "next/image";

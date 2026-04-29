@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowRight, ArrowLeftRight, Droplets, Send, MessageSquare, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 
 export default function LandingPage() {
   const hashconnectContext = useHashConnect();

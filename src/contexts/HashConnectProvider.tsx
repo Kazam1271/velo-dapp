@@ -1,14 +1,8 @@
-'use client';
-import { HashConnect, HashConnectConnectionState, SessionData } from "hashconnect";
-import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
+import { HashConnect, SessionData } from "hashconnect";
+import { useEffect, useState, useCallback, ReactNode } from "react";
 import { AccountId, LedgerId } from "@hiero-ledger/sdk";
 import { toast } from "sonner";
-import { Buffer } from "buffer";
-
-// Ensure Buffer is global for HashConnect/WalletConnect
-if (typeof window !== "undefined") {
-    window.Buffer = window.Buffer || Buffer;
-}
+import { HashConnectContext, HashConnectConnectionState, HashConnectContextType } from "./HashConnectContext";
 
 const appMetadata = {
     name: "Velo",
@@ -18,23 +12,6 @@ const appMetadata = {
 };
 
 const projectId = "77347672d58ccce678cc86eee18c5918";
-
-interface HashConnectContextType {
-    hashconnect: HashConnect;
-    state: HashConnectConnectionState;
-    pairingData: SessionData | null;
-    address: string | null;
-    hederaAccountId: string | null;
-    balance: string;
-    isRefreshingBalance: boolean;
-    isConnected: boolean;
-    isInitialized: boolean;
-    relayStatus: "connected" | "disconnected" | "connecting";
-    connect: () => void;
-    disconnect: () => void;
-}
-
-const HashConnectContext = createContext<HashConnectContextType | null>(null);
 
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
@@ -223,9 +200,4 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             {children}
         </HashConnectContext.Provider>
     );
-};
-
-export const useHashConnect = () => {
-    const context = useContext(HashConnectContext);
-    return context;
 };

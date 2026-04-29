@@ -1,6 +1,6 @@
 "use client";
 
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 import { useState, useEffect } from "react";
 
 export const ConnectWalletButton = () => {

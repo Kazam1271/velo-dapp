@@ -2,11 +2,9 @@
 
 import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw, Loader2 } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
-import { HashConnectConnectionState } from "hashconnect";
+import { useHashConnect, HashConnectConnectionState } from "@/contexts/HashConnectContext";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
-import { Buffer } from "buffer";
 import { motion, AnimatePresence } from "framer-motion";
 import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";

@@ -22,7 +22,7 @@ import {
   History
 } from "lucide-react";
 import Image from "next/image";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 interface TokenBalance {

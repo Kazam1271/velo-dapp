@@ -13,7 +13,7 @@ import {
   History,
   Search
 } from "lucide-react";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
@@ -150,7 +150,7 @@ export default function TransferView() {
 
       // @ts-ignore - Bypass TS mismatch between @hiero-ledger/sdk versions
       if (!hashconnect) throw new Error("Wallet service not ready");
-      const signer = hashconnect.getSigner(AccountId.fromString(accountId));
+      const signer = hashconnect.getSigner(AccountId.fromString(accountId) as any) as any;
       // @ts-ignore
       const frozenTx = await transaction.freezeWithSigner(signer);
       // @ts-ignore

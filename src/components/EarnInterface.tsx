@@ -2,7 +2,7 @@
 
 import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw, Loader2, Coins } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useHashConnect } from "@/contexts/HashConnectProvider";
+import { useHashConnect } from "@/contexts/HashConnectContext";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
