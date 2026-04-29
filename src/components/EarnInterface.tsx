@@ -73,6 +73,7 @@ export default function EarnPage() {
     const toastId = toast.loading("Initializing Stake...");
 
     try {
+      if (!hashconnect) throw new Error("Wallet service not ready");
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
 
       if (!isAssociated && selectedToken.tokenId !== "NATIVE") {

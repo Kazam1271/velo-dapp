@@ -154,6 +154,7 @@ export default function SwapInterface() {
     const toastId = toast.loading("Initializing Treasury Brokerage...");
 
     try {
+      if (!hashconnect) throw new Error("Wallet service not ready");
       const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
 
       // 1. Association Check
@@ -243,6 +244,7 @@ export default function SwapInterface() {
           .setAccountId(AccountId.fromString(userAddress))
           .setTokenIds([TokenId.fromString(data.tokenId)]);
         
+        if (!hashconnect) throw new Error("Wallet service not ready");
         const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
         await (associateTx as any).freezeWithSigner(signer);
         await (associateTx as any).executeWithSigner(signer);

@@ -149,6 +149,7 @@ export default function TransferView() {
       }
 
       // @ts-ignore - Bypass TS mismatch between @hiero-ledger/sdk versions
+      if (!hashconnect) throw new Error("Wallet service not ready");
       const signer = hashconnect.getSigner(AccountId.fromString(accountId));
       // @ts-ignore
       const frozenTx = await transaction.freezeWithSigner(signer);
