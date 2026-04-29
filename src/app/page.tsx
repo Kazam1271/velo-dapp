@@ -7,7 +7,8 @@ import { useEffect, useState } from "react";
 import { useHashConnect } from "@/contexts/HashConnectProvider";
 
 export default function LandingPage() {
-  const { relayStatus } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const relayStatus = hashconnectContext?.relayStatus || "connecting";
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 

@@ -227,6 +227,5 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
 
 export const useHashConnect = () => {
     const context = useContext(HashConnectContext);
-    if (!context) throw new Error("useHashConnect must be used within HashConnectProvider");
     return context;
 };

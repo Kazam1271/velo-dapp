@@ -4,7 +4,12 @@ import { useHashConnect } from "@/contexts/HashConnectProvider";
 import { useState, useEffect } from "react";
 
 export const ConnectWalletButton = () => {
-  const { isConnected, pairingData, hashconnect, disconnect, isInitialized } = useHashConnect();
+  const hashconnectContext = useHashConnect();
+  const isConnected = hashconnectContext?.isConnected || false;
+  const pairingData = hashconnectContext?.pairingData || null;
+  const hashconnect = hashconnectContext?.hashconnect || null;
+  const disconnect = hashconnectContext?.disconnect || (() => {});
+  const isInitialized = hashconnectContext?.isInitialized || false;
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
