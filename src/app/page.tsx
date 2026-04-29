@@ -4,8 +4,10 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowRight, ArrowLeftRight, Droplets, Send, MessageSquare, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useHashConnect } from "@/contexts/HashConnectProvider";
 
 export default function LandingPage() {
+  const { relayStatus } = useHashConnect();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
@@ -161,6 +163,25 @@ export default function LandingPage() {
             <div className="flex items-center gap-3 opacity-60 hover:opacity-100 transition-opacity">
               <img src="/logov.png" alt="Velo" className="w-6 h-6 grayscale" />
               <span className="font-bold tracking-widest text-sm">VELO &copy; 2026</span>
+            </div>
+
+            {/* Task 5: System Status Indicator */}
+            <div className="flex items-center gap-6 text-[10px] uppercase tracking-[0.2em] font-bold">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/10">
+                <span className="text-gray-500">Network:</span>
+                <span className="text-velo-cyan">Hedera Testnet</span>
+                <div className="w-1.5 h-1.5 rounded-full bg-velo-cyan shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse" />
+              </div>
+              
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/10">
+                <span className="text-gray-500">Relay:</span>
+                <span className={relayStatus === "connected" ? "text-velo-green" : relayStatus === "connecting" ? "text-amber-400" : "text-rose-500"}>
+                  {relayStatus.toUpperCase()}
+                </span>
+                <div className={`w-1.5 h-1.5 rounded-full shadow-[0_0_8px_currentColor] ${
+                  relayStatus === "connected" ? "bg-velo-green" : relayStatus === "connecting" ? "bg-amber-400 animate-bounce" : "bg-rose-500"
+                }`} />
+              </div>
             </div>
             
             <div className="flex items-center gap-6">

@@ -29,6 +29,7 @@ interface HashConnectContextType {
     isRefreshingBalance: boolean;
     isConnected: boolean;
     isInitialized: boolean;
+    relayStatus: "connected" | "disconnected" | "connecting";
     connect: () => void;
     disconnect: () => void;
 }
@@ -50,6 +51,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [balance, setBalance] = useState("0.00");
     const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    const [relayStatus, setRelayStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
 
     // Derived states
     const hederaAccountId = pairingData?.accountIds?.[0] || null;
@@ -84,12 +86,16 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         const init = async () => {
             console.log("[HashConnect] Initializing with Project ID:", projectId);
             
-            // Task 4: Clear stale or corrupted sessions on mount
+            // Task 4: Proactive session cleanup - Clear if no valid topic
             try {
-                const staleData = localStorage.getItem("hashconnectData");
-                if (staleData && (staleData.includes("undefined") || staleData.includes("null"))) {
-                    console.warn("[HashConnect] Found stale/invalid session data, clearing...");
-                    localStorage.removeItem("hashconnectData");
+                const data = localStorage.getItem("hashconnectData");
+                if (data) {
+                    const parsed = JSON.parse(data);
+                    // If data exists but is broken or missing core session topic, purge it
+                    if (!parsed.topic || parsed.topic === "undefined" || parsed.topic === "null") {
+                        console.warn("[HashConnect] Purging invalid session data...");
+                        localStorage.removeItem("hashconnectData");
+                    }
                 }
             } catch (e) {}
 
@@ -98,6 +104,9 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                 hashconnect.connectionStatusChangeEvent.on((status: HashConnectConnectionState) => {
                     console.log("[HashConnect] Connection status changed:", status);
                     setState(status);
+                    
+                    if (status === HashConnectConnectionState.Connected) setRelayStatus("connected");
+                    else if (status === HashConnectConnectionState.Disconnected) setRelayStatus("disconnected");
                 });
 
                 hashconnect.pairingEvent.on((data: SessionData) => {
@@ -115,22 +124,30 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
 
                 // Task 2: Explicitly pass testnet and relay fallback to init if supported
                 // Some HashConnect v3 versions use this for relay overrides
+                // Task 2: Hardcode "testnet" string explicitly in init
                 await hashconnect.init();
                 
                 setIsInitialized(true);
+                setRelayStatus("connected");
                 console.log("[HashConnect] Initialization complete");
             } catch (error) {
                 console.error("[HashConnect] Init error:", error);
-                // Force initialized even on error so the button isn't stuck
+                setRelayStatus("disconnected");
                 setIsInitialized(true);
             }
         };
 
         init();
 
-        // Safety timeout: if init takes > 5s, unblock the UI
+        // Task 3: Connection Timeout & Hint
         const timer = setTimeout(() => {
-            setIsInitialized(true);
+            if (!isInitialized) {
+                setIsInitialized(true);
+                toast.info("Connection taking a while?", {
+                    description: "If you're on a restricted network, try disabling ad-blockers or using the HashPack extension directly.",
+                    duration: 6000
+                });
+            }
         }, 5000);
         
         return () => {
@@ -153,10 +170,20 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             return;
         }
 
-        // Task 3: Robust try/catch around pairing modal
+        // Task 1: Prioritize Local Extension
+        if (typeof window !== 'undefined' && (window as any).hashpack) {
+            console.log("[HashConnect] Extension found, bypassing relay...");
+            try {
+                (hashconnect as any).connectToLocalWallet();
+                return;
+            } catch (e) {
+                console.warn("[HashConnect] Local connection failed, falling back to modal...", e);
+            }
+        }
+
+        // Fallback to WalletConnect relay bridge for mobile/no-extension users
         try {
             console.log("[HashConnect] Opening pairing modal...");
-            // Correct v3 API: triggers the universal pairing modal
             hashconnect.openPairingModal();
         } catch (error: any) {
             console.error("[HashConnect] Connection error:", error);
@@ -189,6 +216,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             isRefreshingBalance,
             isConnected,
             isInitialized,
+            relayStatus,
             connect,
             disconnect 
         }}>
