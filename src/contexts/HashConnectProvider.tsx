@@ -3,6 +3,12 @@ import { HashConnect, HashConnectConnectionState, SessionData } from "hashconnec
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from "react";
 import { AccountId, LedgerId } from "@hiero-ledger/sdk";
 import { toast } from "sonner";
+import { Buffer } from "buffer";
+
+// Ensure Buffer is global for HashConnect/WalletConnect
+if (typeof window !== "undefined") {
+    window.Buffer = window.Buffer || Buffer;
+}
 
 const appMetadata = {
     name: "Velo",
@@ -101,12 +107,20 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                 console.log("[HashConnect] Initialization complete");
             } catch (error) {
                 console.error("[HashConnect] Init error:", error);
+                // Force initialized even on error so the button isn't stuck
+                setIsInitialized(true);
             }
         };
 
         init();
+
+        // Safety timeout: if init takes > 5s, unblock the UI
+        const timer = setTimeout(() => {
+            setIsInitialized(true);
+        }, 5000);
         
         return () => {
+            clearTimeout(timer);
             (hashconnect.connectionStatusChangeEvent as any).off();
             (hashconnect.pairingEvent as any).off();
             (hashconnect.disconnectionEvent as any).off();
