@@ -87,6 +87,30 @@ export default function SwapInterface() {
     return () => clearInterval(interval);
   }, []);
 
+  // ── Airdrop Persistence Check ──
+  useEffect(() => {
+    const checkAirdrop = async () => {
+      if (!isConnected || !userAddress) {
+        setHasClaimed(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/check-airdrop?accountId=${userAddress}`);
+        const data = await res.json();
+        if (data.hasClaimed) {
+          setHasClaimed(true);
+        } else {
+          setHasClaimed(false);
+        }
+      } catch (err) {
+        console.error("Airdrop check failed:", err);
+      }
+    };
+
+    checkAirdrop();
+  }, [isConnected, userAddress]);
+
   // ── Quote Engine (Using Live Prices) ──
   useEffect(() => {
     const amount = parseFloat(payAmount);
