@@ -6,8 +6,8 @@ import { HashConnectContext, HashConnectConnectionState, HashConnectContextType 
 
 const appMetadata = {
     name: "Velo",
-    description: "The Premier Hedera Trading Desk",
-    icons: ["https://velo-swart.vercel.app/logov.png"], 
+    description: "Frictionless DeFi on Hedera",
+    icons: ["https://veloexchange.org/logov.png"], 
     url: "https://veloexchange.org"
 };
 
