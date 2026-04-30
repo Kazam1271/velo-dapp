@@ -7,7 +7,7 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735151": 0.15, // PACK (Mock)
   "0.0.8735221": 1.00, // USDC (Mock)
   "0.0.8734118": 1.00, // USDT (Mock)
-  "0.0.8725045": 1.00, // VELO (Mock)
+  "0.0.8725045": 0.01, // VELO (Mock)
   "0.0.8735222": 0.09, // WHBAR (Mock)
 };
 

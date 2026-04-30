@@ -25,7 +25,7 @@ export function usePriceFeed() {
         pack: 0.007,
         usdt: 1.0,
         usdc: 1.0,
-        velo: 0.0091 
+        velo: 0.01 
       };
 
       try {
@@ -58,7 +58,7 @@ export function usePriceFeed() {
         // 4. Stablecoins and Velo Peg
         livePrices["usdt"] = 1.0;
         livePrices["usdc"] = 1.0;
-        livePrices["velo"] = (livePrices["hbar"] || fallbackPrices["hbar"]) / 10;
+        livePrices["velo"] = 0.01; // Fixed price at $0.01 per token
 
         console.log("[DEBUG] Official SaucerSwap Prices Loaded:", livePrices);
         setPrices({ ...fallbackPrices, ...livePrices });
