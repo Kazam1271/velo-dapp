@@ -115,12 +115,38 @@ export default function TransferView() {
     }
   };
 
+  const [recentRecipients, setRecentRecipients] = useState<{name: string, address: string}[]>([]);
+
+  // Load recent recipients from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem(`recent_recipients_${accountId}`);
+    if (stored) {
+      try {
+        setRecentRecipients(JSON.parse(stored));
+      } catch (e) {
+        console.error("Failed to parse recent recipients", e);
+      }
+    }
+  }, [accountId]);
+
+  const saveRecentRecipient = (name: string, address: string) => {
+    if (!accountId) return;
+    const newRecipient = { name, address };
+    
+    // Remove if already exists (to move to front)
+    const filtered = recentRecipients.filter(r => r.address !== address && r.name !== name);
+    const updated = [newRecipient, ...filtered].slice(0, 5); // Keep last 5
+    
+    setRecentRecipients(updated);
+    localStorage.setItem(`recent_recipients_${accountId}`, JSON.stringify(updated));
+  };
+
   const executeTransfer = async () => {
     if (!accountId || !resolvedAddress || isSending) return;
     setIsSending(true);
 
     try {
-      const treasuryId = "0.0.12345"; // Hardcoded Velo Treasury
+      const treasuryId = "0.0.8642596"; // Updated to actual Treasury ID
       let transaction = new TransferTransaction();
       const isNative = selectedToken.tokenId === "NATIVE";
 
@@ -158,8 +184,10 @@ export default function TransferView() {
 
       if (res) {
         toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
+        saveRecentRecipient(recipient, resolvedAddress);
       } else {
         toast.success(`Transfer initiated! Check your wallet.`);
+        saveRecentRecipient(recipient, resolvedAddress);
       }
 
       setIsReviewModalOpen(false);
@@ -230,10 +258,22 @@ export default function TransferView() {
             </div>
 
             {/* Recent Contacts */}
-            <div className="flex items-center gap-3 pt-2">
-              <span className="text-[10px] font-bold text-gray-600 uppercase">Recent:</span>
-              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar">
-                <span className="text-[10px] font-medium text-gray-500 italic py-1.5">No recent transfers</span>
+            <div className="flex items-center gap-3 pt-2 overflow-hidden">
+              <span className="text-[10px] font-bold text-gray-600 uppercase flex-shrink-0">Recent:</span>
+              <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide no-scrollbar flex-grow">
+                {recentRecipients.length > 0 ? (
+                  recentRecipients.map((r, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setRecipient(r.name)}
+                      className="text-[10px] font-black text-velo-cyan bg-velo-cyan/10 px-3 py-1.5 rounded-xl hover:bg-velo-cyan/20 transition-all whitespace-nowrap border border-velo-cyan/10"
+                    >
+                      {r.name}
+                    </button>
+                  ))
+                ) : (
+                  <span className="text-[10px] font-medium text-gray-500 italic py-1.5">No recent transfers</span>
+                )}
               </div>
             </div>
           </div>
