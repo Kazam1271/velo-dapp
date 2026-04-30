@@ -125,8 +125,8 @@ export default function SwapInterface() {
       return;
     }
 
-    const priceIn = livePrices[payToken.tokenId] || livePrices[payToken.symbol] || 0.08;
-    const priceOut = livePrices[recvToken.tokenId] || livePrices[recvToken.symbol] || 0.10;
+    const priceIn = livePrices[payToken.tokenId] || livePrices[payToken.symbol.toLowerCase()] || 0.08;
+    const priceOut = livePrices[recvToken.tokenId] || livePrices[recvToken.symbol.toLowerCase()] || 0.10;
 
     if (priceIn > 0 && priceOut > 0) {
       const usdValue = amount * priceIn;
