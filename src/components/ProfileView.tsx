@@ -213,7 +213,7 @@ export default function ProfileView() {
                   // VELO wildcard: hardcode $0.01 target price until pool launches
                   const isVelo = cleanSymbol.toUpperCase() === 'VELO';
                   const saucerData = tokenDataMap.get(cleanSymbol) || { price: 0, icon: null };
-                  const tokenPrice = isVelo ? 0.01 : parseFloat(saucerData.price?.toString() || '0');
+                  const tokenPrice = isVelo ? 1.0 : parseFloat(saucerData.price?.toString() || '0');
                   const calculatedUsdValue = trueBalance * tokenPrice;
 
                   return {
@@ -546,7 +546,7 @@ export default function ProfileView() {
                           <p className="text-[10px] text-gray-600 font-mono">
                             {token.price > 0 
                               ? `$${token.price < 0.01 ? token.price.toFixed(6) : token.price.toFixed(4)} / token`
-                              : token.ticker.replace('(Mock)','').trim() === 'VELO' ? '$0.01 target' : '—'
+                              : token.ticker.replace('(Mock)','').trim() === 'VELO' ? '$1.00 target' : '—'
                             }
                           </p>
                         </div>
