@@ -10,16 +10,33 @@ import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
   title: 'Velo | Hedera DEX',
-  description: 'Zero-slippage trading on the Hedera network.',
+  description: 'Frictionless DeFi on Hedera.',
   icons: {
     icon: '/logov.png',
+    shortcut: '/logov.png',
     apple: '/logov.png',
   },
   openGraph: {
-    title: 'Velo DEX',
-    description: 'Zero-slippage trading on the Hedera network.',
-    images: ['/logo.png'], // Use the full logo for large social previews
-  }
+    title: 'Velo | Hedera DEX',
+    description: 'Frictionless DeFi on Hedera.',
+    url: 'https://veloexchange.org',
+    siteName: 'Velo',
+    images: [
+      {
+        url: 'https://veloexchange.org/logov.png',
+        width: 512,
+        height: 512,
+      },
+    ],
+    locale: 'en_US',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Velo | Hedera DEX',
+    description: 'Frictionless DeFi on Hedera.',
+    images: ['https://veloexchange.org/logov.png'],
+  },
 };
 
 export default function RootLayout({

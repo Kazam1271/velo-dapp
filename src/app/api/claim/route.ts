@@ -81,9 +81,11 @@ export async function POST(req: NextRequest) {
     console.error("[Claim] Error:", error);
 
     // Specific error mapping for Hedera Token Service
-    if (error.message.includes("TOKEN_NOT_ASSOCIATED_TO_ACCOUNT")) {
+    if (error.message.includes("TOKEN_NOT_ASSOCIATED_TO_ACCOUNT") || error.message.includes("ASSOCIATION_REQUIRED")) {
       return NextResponse.json({ 
         error: "ASSOCIATION_REQUIRED", 
+        associationRequired: true,
+        tokenId: VELO_TOKEN_ID,
         message: "You must associate VELO with your account before claiming." 
       }, { status: 400 });
     }

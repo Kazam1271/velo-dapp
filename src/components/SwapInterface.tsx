@@ -234,8 +234,8 @@ export default function SwapInterface() {
         body: JSON.stringify({ accountId: userAddress }),
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "Claim failed");
 
+      // Handle Association Required (even if response is not ok)
       if (data.associationRequired) {
         toast.loading("Association Required", { id: toastId, description: "Please associate VELO first." });
         const associateTx = new TokenAssociateTransaction()
@@ -248,9 +248,12 @@ export default function SwapInterface() {
         await (associateTx as any).executeWithSigner(signer);
         
         setIsClaiming(false);
-        handleClaimAirdrop();
+        // Retry claim after association
+        setTimeout(() => handleClaimAirdrop(), 1000);
         return;
       }
+
+      if (!response.ok) throw new Error(data.error || "Claim failed");
 
       toast.success("AIRDROP CLAIMED!", {
         id: toastId,
