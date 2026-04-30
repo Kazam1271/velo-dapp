@@ -117,28 +117,74 @@ export default function TransferView() {
 
   const [recentRecipients, setRecentRecipients] = useState<{name: string, address: string}[]>([]);
 
-  // Load recent recipients from localStorage
+  // Load recent recipients from Cloud (Supabase) + Fallback to localStorage
   useEffect(() => {
-    const stored = localStorage.getItem(`recent_recipients_${accountId}`);
-    if (stored) {
+    if (!accountId) return;
+
+    const loadRecipients = async () => {
+      // 1. Try Cloud First
       try {
-        setRecentRecipients(JSON.parse(stored));
-      } catch (e) {
-        console.error("Failed to parse recent recipients", e);
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('recent_recipients')
+          .eq('wallet_id', accountId)
+          .single();
+        
+        if (data?.recent_recipients && Array.isArray(data.recent_recipients)) {
+          console.log("[Cloud] Loaded recent recipients from Supabase");
+          setRecentRecipients(data.recent_recipients);
+          // Sync to local storage as backup
+          localStorage.setItem(`recent_recipients_${accountId}`, JSON.stringify(data.recent_recipients));
+          return;
+        }
+      } catch (err) {
+        console.error("[Cloud] Failed to load from Supabase:", err);
       }
-    }
+
+      // 2. Fallback to Local Storage
+      const stored = localStorage.getItem(`recent_recipients_${accountId}`);
+      if (stored) {
+        try {
+          setRecentRecipients(JSON.parse(stored));
+        } catch (e) {
+          console.error("Failed to parse recent recipients", e);
+        }
+      }
+    };
+
+    loadRecipients();
   }, [accountId]);
 
-  const saveRecentRecipient = (name: string, address: string) => {
+  const saveRecentRecipient = async (name: string, address: string) => {
     if (!accountId) return;
     const newRecipient = { name, address };
     
-    // Remove if already exists (to move to front)
+    // Calculate updated list
     const filtered = recentRecipients.filter(r => r.address !== address && r.name !== name);
     const updated = [newRecipient, ...filtered].slice(0, 5); // Keep last 5
     
     setRecentRecipients(updated);
+    
+    // 1. Save to Local Storage (Immediate feedback)
     localStorage.setItem(`recent_recipients_${accountId}`, JSON.stringify(updated));
+
+    // 2. Save to Cloud (Supabase)
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .upsert({ 
+          wallet_id: accountId, 
+          recent_recipients: updated 
+        }, { onConflict: 'wallet_id' });
+
+      if (error) {
+        console.error("[Cloud] Error saving to Supabase:", error.message);
+      } else {
+        console.log("[Cloud] Successfully synced recent recipients to Supabase");
+      }
+    } catch (err) {
+      console.error("[Cloud] Sync failed:", err);
+    }
   };
 
   const executeTransfer = async () => {
