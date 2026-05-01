@@ -6,6 +6,7 @@ import { useHashConnect } from "@/contexts/HashConnectContext";
 import { HashConnectConnectionState } from "hashconnect";
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
@@ -74,7 +75,7 @@ export default function Header() {
     <header className="relative flex items-center justify-between w-full px-4 py-4 border-b border-velo-border bg-velo-bg/80 backdrop-blur-md z-50">
       {/* Left Zone: Logo */}
       <div className="flex-1 flex justify-start">
-        <div className="flex items-center gap-2 group cursor-pointer active:scale-95 transition-transform">
+        <Link href="/" className="flex items-center gap-2 group cursor-pointer active:scale-95 transition-transform">
           <Image 
             src="/logo.png" 
             alt="Velo Logo" 
@@ -83,7 +84,7 @@ export default function Header() {
             className="object-contain drop-shadow-[0_0_8px_rgba(6,182,212,0.3)]"
             priority
           />
-        </div>
+        </Link>
       </div>
 
       {/* Center Zone: Network/Price (Absolutely Centered) */}
