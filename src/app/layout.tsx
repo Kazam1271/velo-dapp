@@ -7,6 +7,7 @@ if (typeof window !== 'undefined') {
 }
 import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: 'Velo | Hedera DEX',
@@ -54,6 +55,7 @@ export default function RootLayout({
           {children}
           <Toaster position="bottom-right" theme="dark" />
         </ClientWalletProvider>
+        <SpeedInsights />
       </body>
     </html>
   );
