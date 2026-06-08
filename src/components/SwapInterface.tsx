@@ -191,7 +191,7 @@ export default function SwapInterface() {
         const txId = await executeHbarSwap(
           hashconnect,
           userAddress,
-          "0.0.9167858", // ROUTER_CONTRACT_ID
+          "0.0.9167877", // ROUTER_CONTRACT_ID
           tokenBAddress,
           hbarAmountIn,
           amountBOut
@@ -238,7 +238,7 @@ export default function SwapInterface() {
         const txId = await executeVeloMockSwap(
           hashconnect,
           userAddress,
-          "0.0.9167858", // ROUTER_CONTRACT_ID
+          "0.0.9167877", // ROUTER_CONTRACT_ID
           payToken.tokenId,
           tokenAAddress,
           tokenBAddress,
@@ -271,7 +271,7 @@ export default function SwapInterface() {
         const txId = await executeTokenForHbarSwap(
           hashconnect,
           userAddress,
-          "0.0.9167858", // ROUTER_CONTRACT_ID
+          "0.0.9167877", // ROUTER_CONTRACT_ID
           payToken.tokenId,
           tokenInAddress,
           amountTiny
