@@ -52,13 +52,34 @@ contract VeloMockRouter is Ownable {
         }
 
         uint256 amountBOut = amountAIn * exchangeRate;
-
-        // Ensure the treasury has given the contract enough allowance
-        // Note: The treasury wallet MUST have called approve() on tokenB for this contract address.
-        
-        // 5. Transfer Token B from the treasury's inventory directly to the user
         require(IERC20(tokenB).transferFrom(treasuryWallet, msg.sender, amountBOut), "Treasury TransferFrom failed");
     }
+
+    /**
+     * @notice Swap native HBAR for an HTS token.
+     * Caller attaches HBAR to the transaction (msg.value in tinybars).
+     * The contract forwards HBAR to the treasury and pulls Token B from
+     * the treasury's allowance directly to the caller.
+     * @param tokenB  EVM address of the output HTS token.
+     * @param amountBOut Pre-calculated output amount (computed on frontend using live prices).
+     */
+    function swapHbarForToken(
+        address tokenB,
+        uint256 amountBOut
+    ) external payable {
+        require(msg.value > 0, "Must attach HBAR");
+        require(amountBOut > 0, "Output amount must be greater than zero");
+
+        // Pull Token B from treasury to the user
+        require(IERC20(tokenB).transferFrom(treasuryWallet, msg.sender, amountBOut), "Treasury payout failed");
+
+        // Forward all received HBAR to the treasury wallet
+        (bool sent, ) = payable(treasuryWallet).call{value: msg.value}("");
+        require(sent, "HBAR forward to treasury failed");
+    }
+
+    // Allow contract to receive HBAR (needed for the payable call pattern)
+    receive() external payable {}
 
     function setTreasuryWallet(address _newTreasury) external onlyOwner {
         treasuryWallet = _newTreasury;

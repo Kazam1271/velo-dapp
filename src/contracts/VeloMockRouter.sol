@@ -74,7 +74,6 @@ contract VeloMockRouter is Ownable {
         uint256 feeAmount = (amountAIn * feeBasisPoints) / 10000;
         
         // 2. Transfer Token A from user to this contract
-        // REQUIREMENT: The user MUST have already approved this contract to spend 'amountAIn'.
         IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountAIn);
 
         // 3. Transfer the fee portion directly to the Velo Treasury Wallet
@@ -82,28 +81,43 @@ contract VeloMockRouter is Ownable {
             IERC20(tokenA).safeTransfer(treasuryWallet, feeAmount);
         }
 
-        // (The remaining amount stays securely inside this contract's balance for future testing)
-
         // 4. Calculate the amount of Token B to send back to the user
-        // Utilizing the fixed/hardcoded conversion rate for testing environments
         uint256 amountBOut = amountAIn * exchangeRate;
 
-        // Ensure the treasury has given the contract enough allowance
-        // Note: The treasury wallet MUST have called approve() on tokenB for this contract address.
-        
         // 5. Transfer Token B from the treasury's inventory directly to the user
         IERC20(tokenB).safeTransferFrom(treasuryWallet, msg.sender, amountBOut);
 
-        // Emit receipt of execution
-        emit SwapExecuted(
-            msg.sender,
-            tokenA,
-            tokenB,
-            amountAIn,
-            amountBOut,
-            feeAmount
-        );
+        emit SwapExecuted(msg.sender, tokenA, tokenB, amountAIn, amountBOut, feeAmount);
     }
+
+    /**
+     * @notice Swap native HBAR for an HTS Token B.
+     * The caller attaches HBAR to the transaction (msg.value, in tinybars on Hedera EVM).
+     * The contract forwards all received HBAR to the treasury and pulls the
+     * pre-calculated Token B amount from the treasury's allowance to the caller.
+     * @param tokenB     EVM address of the output HTS token.
+     * @param amountBOut Pre-calculated output amount in token's smallest unit (done on the frontend).
+     */
+    function swapHbarForToken(
+        address tokenB,
+        uint256 amountBOut
+    ) external payable {
+        require(msg.value > 0, "Must attach HBAR");
+        require(amountBOut > 0, "Output amount must be greater than zero");
+
+        // Pull Token B from treasury to the user
+        IERC20(tokenB).safeTransferFrom(treasuryWallet, msg.sender, amountBOut);
+
+        // Forward all received HBAR to the treasury wallet
+        (bool sent, ) = payable(treasuryWallet).call{value: msg.value}("");
+        require(sent, "HBAR forward to treasury failed");
+
+        uint256 feeAmount = (msg.value * feeBasisPoints) / 10000;
+        emit SwapExecuted(msg.sender, address(0), tokenB, msg.value, amountBOut, feeAmount);
+    }
+
+    /// @notice Allow contract to receive HBAR (required for payable contract calls).
+    receive() external payable {}
 
     // --- Admin Configuration Functions ---
 
