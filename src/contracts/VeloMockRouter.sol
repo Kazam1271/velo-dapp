@@ -111,7 +111,7 @@ contract VeloMockRouter is Ownable {
 
     /**
      * @notice HBAR -> Token swap entry point.
-     * User attaches HBAR; contract keeps 0.25 HBAR fee and transfers principal to treasury.
+     * User attaches HBAR; contract keeps all HBAR (fee + principal) to avoid Hedera EOA call failures.
      */
     function swapHbarForToken(
         address tokenOut,
@@ -122,11 +122,7 @@ contract VeloMockRouter is Ownable {
 
         uint256 fee = 25000000; // 0.25 HBAR (in tinybars)
         require(msg.value > fee, "Amount too small for 0.25 HBAR fee");
-        uint256 principal = msg.value - fee;
-
-        // Keep 0.25 HBAR in contract. Send the rest to the treasury wallet.
-        (bool sent, ) = payable(treasuryWallet).call{value: principal}("");
-        require(sent, "Failed to send principal HBAR to treasury");
+        // Keep all HBAR in the contract. The treasury can sweep it using withdrawHbar().
 
         emit HbarSwapRequested(msg.sender, tokenOut, msg.value, expectedTokenOut);
     }
