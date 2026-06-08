@@ -10,6 +10,7 @@ import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
+import { executeVeloMockSwap } from "@/lib/executeVeloMockSwap";
 import { 
   Transaction,
   TransferTransaction, 
@@ -169,7 +170,45 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2. Step 1: Deposit to Treasury
+      // 2. Smart Contract Swap (Decentralized Route)
+      if (payToken.tokenId !== "NATIVE" && recvToken.tokenId !== "NATIVE") {
+        toast.loading(`Executing decentralized swap via Smart Contract...`, { id: toastId });
+        try {
+          const decimals = payToken.tokenId === "0.0.8725045" || payToken.tokenId === MOCK_WHBAR_TOKEN_ID ? 8 : 6;
+          const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
+          
+          const tokenAAddress = "0x" + TokenId.fromString(payToken.tokenId).toSolidityAddress();
+          const tokenBAddress = "0x" + TokenId.fromString(recvToken.tokenId).toSolidityAddress();
+
+          const txId = await executeVeloMockSwap(
+            hashconnect,
+            userAddress,
+            "0.0.9167086", // ROUTER_CONTRACT_ID
+            payToken.tokenId,
+            tokenAAddress,
+            tokenBAddress,
+            amountTiny
+          );
+          
+          toast.success("Swap Complete!", {
+            id: toastId,
+            description: `Successfully swapped ${payAmount} ${payToken.symbol} via Smart Contract.`,
+            action: {
+              label: "View HashScan",
+              onClick: () => window.open(`https://hashscan.io/testnet/transaction/${txId}`, "_blank")
+            }
+          });
+          setPayAmount("");
+          refreshBalances();
+          setIsSwapping(false);
+          return; // Exit early since swap succeeded
+        } catch (scErr: any) {
+          console.warn("Smart Contract Swap failed or rejected. Falling back to Backend Broker...", scErr);
+          toast.loading("Smart Contract swap failed. Falling back to Treasury Broker...", { id: toastId });
+        }
+      }
+
+      // --- BACKEND BROKER FALLBACK LOGIC ---
       toast.loading(`Depositing ${payToken.symbol} to Velo Treasury...`, { id: toastId });
       let depositTx = new TransferTransaction();
 

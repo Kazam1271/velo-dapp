@@ -88,14 +88,11 @@ contract VeloMockRouter is Ownable {
         // Utilizing the fixed/hardcoded conversion rate for testing environments
         uint256 amountBOut = amountAIn * exchangeRate;
 
-        // Ensure the contract has enough Token B inventory to fulfill the swap payload
-        require(
-            IERC20(tokenB).balanceOf(address(this)) >= amountBOut,
-            "Insufficient Mock Token B inventory in router"
-        );
-
-        // 5. Transfer Token B from this contract's inventory directly to the user
-        IERC20(tokenB).safeTransfer(msg.sender, amountBOut);
+        // Ensure the treasury has given the contract enough allowance
+        // Note: The treasury wallet MUST have called approve() on tokenB for this contract address.
+        
+        // 5. Transfer Token B from the treasury's inventory directly to the user
+        IERC20(tokenB).safeTransferFrom(treasuryWallet, msg.sender, amountBOut);
 
         // Emit receipt of execution
         emit SwapExecuted(
