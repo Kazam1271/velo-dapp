@@ -71,15 +71,23 @@ contract VeloMockRouter is Ownable {
         require(amountBOut > 0, "Output amount must be greater than zero");
 
         // Pull Token B from treasury to the user
+        // Treasury must have pre-approved this contract via AccountAllowanceApproveTransaction
         require(IERC20(tokenB).transferFrom(treasuryWallet, msg.sender, amountBOut), "Treasury payout failed");
 
-        // Forward all received HBAR to the treasury wallet
-        (bool sent, ) = payable(treasuryWallet).call{value: msg.value}("");
-        require(sent, "HBAR forward to treasury failed");
+        // HBAR stays in the contract balance.
+        // The owner (treasury) can withdraw accumulated HBAR via withdrawHbar().
     }
 
-    // Allow contract to receive HBAR (needed for the payable call pattern)
+    // Allow contract to receive HBAR
     receive() external payable {}
+
+    /// @notice Withdraw accumulated HBAR from the contract to the owner.
+    function withdrawHbar() external onlyOwner {
+        uint256 bal = address(this).balance;
+        require(bal > 0, "No HBAR to withdraw");
+        (bool sent, ) = payable(owner()).call{value: bal}("");
+        require(sent, "HBAR withdrawal failed");
+    }
 
     function setTreasuryWallet(address _newTreasury) external onlyOwner {
         treasuryWallet = _newTreasury;
