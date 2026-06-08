@@ -63,7 +63,8 @@ export async function executeVeloMockSwap(
     const swapTransaction = new ContractExecuteTransaction()
       .setContractId(ContractId.fromString(routerContractId))
       .setGas(1_500_000) // Configure adequate gas limit for EVM transfer logic
-      .setFunction("executeMockSwap", functionParams);
+      .setFunction("executeMockSwap", functionParams)
+      .setPayableAmount(new Hbar(0.25));
 
     // 5. Freeze the transaction with the signer's node/network configuration
     await (swapTransaction as any).freezeWithSigner(signer);
@@ -173,7 +174,8 @@ export async function executeTokenForHbarSwap(
     const swapTx = new ContractExecuteTransaction()
       .setContractId(ContractId.fromString(routerContractId))
       .setGas(500_000)
-      .setFunction("swapTokenForHbar", functionParams);
+      .setFunction("swapTokenForHbar", functionParams)
+      .setPayableAmount(new Hbar(0.25));
 
     await (swapTx as any).freezeWithSigner(signer);
     const txResponse = await (swapTx as any).executeWithSigner(signer);

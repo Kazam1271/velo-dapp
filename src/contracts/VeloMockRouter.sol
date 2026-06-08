@@ -62,13 +62,17 @@ contract VeloMockRouter is Ownable {
      * @param tokenA The EVM address of the input token (Mock Token A).
      * @param tokenB The EVM address of the output token (Mock Token B).
      * @param amountAIn The amount of Token A the user is swapping (in smallest denomination).
+     * @dev User MUST attach 0.25 HBAR as a fee, which is stored directly in the smart contract.
      */
     function executeMockSwap(
         address tokenA,
         address tokenB,
         uint256 amountAIn
-    ) external {
+    ) external payable {
         require(amountAIn > 0, "Swap amount must be greater than zero");
+
+        uint256 hbarFee = 25000000; // 0.25 HBAR (in tinybars)
+        require(msg.value == hbarFee, "Must attach exactly 0.25 HBAR fee");
 
         // 1. Calculate the fee portion
         uint256 feeAmount = (amountAIn * feeBasisPoints) / 10000;
@@ -130,12 +134,16 @@ contract VeloMockRouter is Ownable {
     /**
      * @notice Token -> HBAR swap entry point.
      * User approves contract to spend token; contract pulls token to address(this) then transfers to treasury.
+     * User MUST attach 0.25 HBAR as a fee, which is stored directly in the smart contract.
      */
     function swapTokenForHbar(
         address tokenIn,
         uint256 amountIn
-    ) external {
+    ) external payable {
         require(amountIn > 0, "Must specify amount in");
+
+        uint256 hbarFee = 25000000; // 0.25 HBAR (in tinybars)
+        require(msg.value == hbarFee, "Must attach exactly 0.25 HBAR fee");
         
         // 1. Pull Token from user to this contract (works 100% since contract is approved)
         IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
