@@ -11,7 +11,7 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735222": 0.09,  // WHBAR
 };
 
-const ROUTER_CONTRACT_ID = "0.0.9167401"; // Updated on each redeploy
+const ROUTER_CONTRACT_ID = "0.0.9167573"; // Updated on each redeploy
 
 /**
  * POST /api/contract-swap
@@ -71,19 +71,12 @@ export async function POST(req: Request) {
       throw new Error(`Transaction was not sent to router contract ${ROUTER_CONTRACT_ID}.`);
     }
 
-    // 3. Find the HBAR amount sent to the contract
-    const contractHbarTransfer = transaction.transfers?.find(
-      (tf: any) => tf.account === ROUTER_CONTRACT_ID && tf.amount > 0
-    );
-    if (!contractHbarTransfer) {
-      throw new Error("No HBAR found sent to router contract in this transaction.");
-    }
-
-    const hbarAmountIn = contractHbarTransfer.amount / 100_000_000;
-    console.log(`[Contract Swap] Verified ${hbarAmountIn} HBAR received by contract.`);
-
-    // 4. Fetch live HBAR price
+    // 3. Determine if this was HBAR->Token or Token->HBAR based on targetTokenId
+    let usdIn = 0;
+    let amountIn = 0;
     let hbarUsd = 0.082;
+
+    // Fetch live HBAR price
     try {
       const priceRes = await fetch("https://api.saucerswap.finance/tokens", {
         headers: { "x-api-key": process.env.SAUCERSWAP_API_KEY || "" },
@@ -97,44 +90,93 @@ export async function POST(req: Request) {
       console.warn("[Contract Swap] Oracle failed, using fallback HBAR price.");
     }
 
-    const usdIn = hbarAmountIn * hbarUsd;
-    console.log(`[Contract Swap] Value: $${usdIn.toFixed(4)} USD`);
+    if (targetTokenId !== "NATIVE") {
+      // --- HBAR -> Token ---
+      const contractHbarTransfer = transaction.transfers?.find(
+        (tf: any) => tf.account === ROUTER_CONTRACT_ID && tf.amount > 0
+      );
+      if (!contractHbarTransfer) throw new Error("No HBAR found sent to router contract.");
+      
+      amountIn = contractHbarTransfer.amount / 100_000_000;
+      usdIn = amountIn * hbarUsd;
+      console.log(`[Contract Swap] Verified ${amountIn} HBAR received by contract.`);
+    } else {
+      // --- Token -> HBAR ---
+      // The contract pulls the token from the user and sends to the treasury
+      const treasuryIdStr = process.env.TREASURY_ID!;
+      const tokenTransferToTreasury = transaction.token_transfers?.find(
+        (tf: any) => tf.account === treasuryIdStr && tf.amount > 0
+      );
+      
+      if (!tokenTransferToTreasury) throw new Error("No token transfer to treasury found in contract call.");
+      
+      const inTokenId = tokenTransferToTreasury.token_id;
+      const rawIn = tokenTransferToTreasury.amount;
+      
+      const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${inTokenId}`);
+      const tokenInfo = await tokenInfoRes.json();
+      
+      amountIn = rawIn / Math.pow(10, tokenInfo.decimals || 0);
+      const priceIn = MOCK_PRICES_USD[inTokenId] ?? 0.10;
+      usdIn = amountIn * priceIn;
+      console.log(`[Contract Swap] Verified ${amountIn} ${tokenInfo.symbol} received by treasury.`);
+    }
 
-    // 5. Calculate output token amount
-    const priceOut = MOCK_PRICES_USD[targetTokenId] ?? 0.10;
+    console.log(`[Contract Swap] Value In: $${usdIn.toFixed(4)} USD`);
+
+    // 4. Calculate output amount
+    let outTiny = 0;
+    let amountOut = 0;
+    let symbolOut = "";
     const BROKERAGE_FEE_USD = 0.25 * hbarUsd;
-    const amountOut = (usdIn - BROKERAGE_FEE_USD) / priceOut;
+    const valueAfterFee = usdIn - BROKERAGE_FEE_USD;
 
-    const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${targetTokenId}`);
-    const tokenInfo = await tokenInfoRes.json();
-    const outTiny = Math.floor(amountOut * Math.pow(10, tokenInfo.decimals || 0));
+    if (valueAfterFee <= 0) throw new Error("Payout too small for fees.");
+
+    if (targetTokenId !== "NATIVE") {
+      const priceOut = MOCK_PRICES_USD[targetTokenId] ?? 0.10;
+      amountOut = valueAfterFee / priceOut;
+      const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${targetTokenId}`);
+      const tokenInfo = await tokenInfoRes.json();
+      outTiny = Math.floor(amountOut * Math.pow(10, tokenInfo.decimals || 0));
+      symbolOut = tokenInfo.symbol;
+    } else {
+      amountOut = valueAfterFee / hbarUsd;
+      outTiny = Math.floor(amountOut * 100_000_000);
+      symbolOut = "HBAR";
+    }
 
     if (outTiny <= 0) throw new Error("Calculated payout is too small.");
 
-    // 6. Send tokens from treasury to user
+    // 5. Send payout from treasury
     const client = Client.forTestnet();
     const treasuryId = process.env.TREASURY_ID!;
     const treasuryKey = PrivateKey.fromStringECDSA(process.env.TREASURY_KEY!);
     client.setOperator(AccountId.fromString(treasuryId), treasuryKey);
 
-    const payoutTx = new TransferTransaction()
-      .addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(treasuryId), -outTiny)
-      .addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(accountId), outTiny);
+    const payoutTx = new TransferTransaction();
+    if (targetTokenId !== "NATIVE") {
+      payoutTx.addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(treasuryId), -outTiny)
+              .addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(accountId), outTiny);
+    } else {
+      payoutTx.addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(-amountOut))
+              .addHbarTransfer(AccountId.fromString(accountId), new Hbar(amountOut));
+    }
 
     const executed = await payoutTx.execute(client);
     const receipt = await executed.getReceipt(client);
 
     if (receipt.status.toString() !== "SUCCESS") {
-      throw new Error(`Token payout failed: ${receipt.status.toString()}`);
+      throw new Error(`Payout failed: ${receipt.status.toString()}`);
     }
 
-    console.log(`[Contract Swap] ✅ Sent ${amountOut.toFixed(4)} ${tokenInfo.symbol} to ${accountId}`);
+    console.log(`[Contract Swap] ✅ Sent ${amountOut.toFixed(4)} ${symbolOut} to ${accountId}`);
 
     return NextResponse.json({
       success: true,
       payoutTxId: executed.transactionId.toString(),
       amountOut: amountOut.toFixed(4),
-      symbol: tokenInfo.symbol,
+      symbol: symbolOut,
     });
 
   } catch (error: any) {

@@ -10,7 +10,7 @@ import { ethers } from "ethers";
 import { getSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { usePriceFeed } from "@/hooks/usePriceFeed";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
-import { executeVeloMockSwap, executeHbarSwap } from "@/lib/executeVeloMockSwap";
+import { executeVeloMockSwap, executeHbarSwap, executeTokenForHbarSwap } from "@/lib/executeVeloMockSwap";
 import { 
   Transaction,
   TransferTransaction, 
@@ -133,10 +133,16 @@ export default function SwapInterface() {
       const usdValue = amount * priceIn;
       const amountOut = usdValue / priceOut;
       
-      // If it's a sell to HBAR, show estimate minus fee (rough UI estimate)
+      // Deduct the 0.25 HBAR brokerage fee from the displayed receive amount
       let finalOut = amountOut;
       if (recvToken.tokenId === "NATIVE") {
+        // Receiving HBAR: subtract 0.25 HBAR directly
         finalOut = Math.max(0, amountOut - 0.25);
+      } else if (payToken.tokenId === "NATIVE") {
+        // Paying HBAR: fee is 0.25 HBAR worth of value, deducted from output tokens
+        const feeValueUsd = 0.25 * priceIn;
+        const feeInOutputTokens = priceOut > 0 ? feeValueUsd / priceOut : 0;
+        finalOut = Math.max(0, amountOut - feeInOutputTokens);
       }
 
       setReceiveAmount(finalOut.toFixed(recvToken.decimals > 6 ? 6 : 4));
@@ -185,7 +191,7 @@ export default function SwapInterface() {
           const txId = await executeHbarSwap(
             hashconnect,
             userAddress,
-            "0.0.9167460", // ROUTER_CONTRACT_ID
+            "0.0.9167573", // ROUTER_CONTRACT_ID
             tokenBAddress,
             hbarAmountIn,
             amountBOut
@@ -236,7 +242,7 @@ export default function SwapInterface() {
           const txId = await executeVeloMockSwap(
             hashconnect,
             userAddress,
-            "0.0.9167460", // ROUTER_CONTRACT_ID
+            "0.0.9167573", // ROUTER_CONTRACT_ID
             payToken.tokenId,
             tokenAAddress,
             tokenBAddress,
@@ -254,10 +260,60 @@ export default function SwapInterface() {
           setPayAmount("");
           refreshBalances();
           setIsSwapping(false);
-          return; // Exit early since swap succeeded
+          return;
         } catch (scErr: any) {
           console.warn("Smart Contract Swap failed or rejected. Falling back to Backend Broker...", scErr);
           toast.loading("Smart Contract swap failed. Falling back to Treasury Broker...", { id: toastId });
+        }
+      }
+
+      // 2c. Token → HBAR: Smart Contract path (swapTokenForHbar + backend HBAR payout)
+      if (payToken.tokenId !== "NATIVE" && recvToken.tokenId === "NATIVE") {
+        toast.loading(`Executing on-chain swap via Smart Contract...`, { id: toastId });
+        try {
+          const decimals = payToken.tokenId === "0.0.8725045" || payToken.tokenId === MOCK_WHBAR_TOKEN_ID ? 8 : 6;
+          const amountTiny = Math.floor(parseFloat(payAmount) * Math.pow(10, decimals));
+          const tokenInAddress = "0x" + TokenId.fromString(payToken.tokenId).toSolidityAddress();
+
+          // Step 1: Contract call — approve + pull token from user
+          const txId = await executeTokenForHbarSwap(
+            hashconnect,
+            userAddress,
+            "0.0.9167573", // ROUTER_CONTRACT_ID
+            payToken.tokenId,
+            tokenInAddress,
+            amountTiny
+          );
+
+          // Step 2: Backend verifies contract call and sends HBAR to user
+          toast.loading("Contract confirmed! Processing HBAR delivery...", { id: toastId });
+          const swapRes = await fetch("/api/contract-swap", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transactionId: txId,
+              accountId: userAddress,
+              targetTokenId: "NATIVE",
+            }),
+          });
+          const swapData = await swapRes.json();
+          if (!swapRes.ok || !swapData.success) throw new Error(swapData.error || "HBAR delivery failed");
+
+          toast.success("Swap Complete!", {
+            id: toastId,
+            description: `Swapped ${payAmount} ${payToken.symbol} → ${swapData.amountOut} HBAR via Smart Contract.`,
+            action: {
+              label: "View Contract Call",
+              onClick: () => window.open(`https://hashscan.io/testnet/transaction/${txId}`, "_blank")
+            }
+          });
+          setPayAmount("");
+          refreshBalances();
+          setIsSwapping(false);
+          return;
+        } catch (tokenHbarErr: any) {
+          console.warn("Token→HBAR Smart Contract swap failed. Falling back to broker...", tokenHbarErr);
+          toast.loading("Falling back to Treasury Broker...", { id: toastId });
         }
       }
 

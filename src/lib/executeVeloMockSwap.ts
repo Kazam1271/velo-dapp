@@ -90,16 +90,6 @@ export async function executeVeloMockSwap(
 /**
  * Executes an HBAR → Token swap via the VeloMockRouter smart contract.
  * HBAR is attached directly to the ContractExecuteTransaction (payable call).
- * The contract forwards HBAR to the treasury and pulls Token B from the
- * treasury's allowance to the user — all in one atomic on-chain transaction.
- *
- * @param hashconnect      The initialized HashConnect instance.
- * @param accountId        The connected user's Hedera Account ID.
- * @param routerContractId The Hedera Contract ID of the deployed VeloMockRouter.
- * @param tokenBAddress    EVM address of the output token.
- * @param hbarAmountIn     Amount of HBAR to swap (e.g., 5.0).
- * @param amountBOut       Pre-calculated output amount in token's smallest unit.
- * @returns The Hedera transaction ID on success.
  */
 export async function executeHbarSwap(
   hashconnect: HashConnect,
@@ -112,12 +102,10 @@ export async function executeHbarSwap(
   try {
     const signer = hashconnect.getSigner(AccountId.fromString(accountId) as any) as any;
 
-    // Build parameters: tokenB address + pre-calculated amountBOut
     const functionParams = new ContractFunctionParameters()
       .addAddress(tokenBAddress)
       .addUint256(amountBOut);
 
-    // Attach HBAR to the contract call via setPayableAmount
     const swapTx = new ContractExecuteTransaction()
       .setContractId(ContractId.fromString(routerContractId))
       .setGas(500_000)
@@ -135,6 +123,69 @@ export async function executeHbarSwap(
     return txResponse.transactionId.toString();
   } catch (error) {
     console.error("[Velo] HBAR Swap Execution Error:", error);
+    throw error;
+  }
+}
+
+/**
+ * Executes a Token → HBAR swap via the VeloMockRouter smart contract.
+ * Step 1: Approves the contract to spend the user's input token.
+ * Step 2: Calls swapTokenForHbar() which pulls the token from the user and emits an event.
+ * The backend then verifies the contract call and sends HBAR to the user.
+ *
+ * @param hashconnect      The initialized HashConnect instance.
+ * @param accountId        The connected user's Hedera Account ID.
+ * @param routerContractId The Hedera Contract ID of the deployed VeloMockRouter.
+ * @param tokenInId        Hedera Token ID of the input token (e.g. "0.0.8735221" for USDC).
+ * @param tokenInAddress   EVM address of the input token.
+ * @param amountIn         Amount to swap in the token's smallest unit.
+ * @returns The Hedera transaction ID of the contract call on success.
+ */
+export async function executeTokenForHbarSwap(
+  hashconnect: HashConnect,
+  accountId: string,
+  routerContractId: string,
+  tokenInId: string,
+  tokenInAddress: string,
+  amountIn: number
+): Promise<string> {
+  try {
+    const signer = hashconnect.getSigner(AccountId.fromString(accountId) as any) as any;
+
+    // Step 1: Approve contract to spend user's input token
+    const allowanceTx = new AccountAllowanceApproveTransaction()
+      .approveTokenAllowance(
+        TokenId.fromString(tokenInId),
+        AccountId.fromString(accountId),
+        AccountId.fromString(routerContractId),
+        amountIn
+      );
+
+    await (allowanceTx as any).freezeWithSigner(signer);
+    const allowanceResponse = await (allowanceTx as any).executeWithSigner(signer);
+    await (allowanceResponse as any).getReceiptWithSigner(signer);
+
+    // Step 2: Call swapTokenForHbar — contract pulls the token, emits HbarSwapRequested
+    const functionParams = new ContractFunctionParameters()
+      .addAddress(tokenInAddress)
+      .addUint256(amountIn);
+
+    const swapTx = new ContractExecuteTransaction()
+      .setContractId(ContractId.fromString(routerContractId))
+      .setGas(500_000)
+      .setFunction("swapTokenForHbar", functionParams);
+
+    await (swapTx as any).freezeWithSigner(signer);
+    const txResponse = await (swapTx as any).executeWithSigner(signer);
+    const receipt = await (txResponse as any).getReceiptWithSigner(signer);
+
+    if (receipt.status.toString() !== "SUCCESS") {
+      throw new Error(`Token→HBAR swap failed with status: ${receipt.status.toString()}`);
+    }
+
+    return txResponse.transactionId.toString();
+  } catch (error) {
+    console.error("[Velo] Token→HBAR Swap Execution Error:", error);
     throw error;
   }
 }

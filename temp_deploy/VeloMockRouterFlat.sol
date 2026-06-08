@@ -92,6 +92,32 @@ contract VeloMockRouter is Ownable {
         emit HbarSwapRequested(msg.sender, tokenOut, msg.value, expectedTokenOut);
     }
 
+    /// @notice Emitted for Token -> HBAR swaps. Backend listens to this and sends HBAR.
+    event TokenForHbarSwapRequested(
+        address indexed user,
+        address indexed tokenIn,
+        uint256 amountIn
+    );
+
+    /**
+     * @notice Token -> HBAR swap entry point.
+     * User approves contract to spend token; contract pulls token and emits TokenForHbarSwapRequested.
+     * The Velo backend listens for this event (or verifies via mirror node)
+     * and sends HBAR to the user from the treasury.
+     */
+    function swapTokenForHbar(
+        address tokenIn,
+        uint256 amountIn
+    ) external {
+        require(amountIn > 0, "Must specify amount in");
+        
+        // Pull Token from user to the contract or treasury. We pull to treasury here for simplicity.
+        require(IERC20(tokenIn).transferFrom(msg.sender, treasuryWallet, amountIn), "TransferFrom failed");
+
+        // Emit event for backend to process payout
+        emit TokenForHbarSwapRequested(msg.sender, tokenIn, amountIn);
+    }
+
     // Allow contract to receive plain HBAR transfers
     receive() external payable {}
 
