@@ -170,9 +170,9 @@ export default function SwapInterface() {
         refreshBalances();
       }
 
-      // 2a. HBAR → Token: Smart Contract path (swapHbarForToken)
+      // 2a. HBAR → Token: Smart Contract path (swapHbarForToken + backend payout)
       if (payToken.tokenId === "NATIVE" && recvToken.tokenId !== "NATIVE") {
-        toast.loading(`Swapping HBAR via Smart Contract...`, { id: toastId });
+        toast.loading(`Executing on-chain swap via Smart Contract...`, { id: toastId });
         try {
           const tokenBAddress = "0x" + TokenId.fromString(recvToken.tokenId).toSolidityAddress();
           const recvDecimals = recvToken.tokenId === "0.0.8725045" || recvToken.tokenId === MOCK_WHBAR_TOKEN_ID ? 8 : 6;
@@ -181,20 +181,35 @@ export default function SwapInterface() {
 
           if (amountBOut <= 0) throw new Error("Invalid output amount — enter a valid amount first.");
 
+          // Step 1: Execute the contract call (this is what shows as CONTRACT CALL on HashScan)
           const txId = await executeHbarSwap(
             hashconnect,
             userAddress,
-            "0.0.9167401", // ROUTER_CONTRACT_ID
+            "0.0.9167460", // ROUTER_CONTRACT_ID
             tokenBAddress,
             hbarAmountIn,
             amountBOut
           );
 
+          // Step 2: Tell the backend to verify the contract call and send tokens
+          toast.loading("Contract confirmed! Processing token delivery...", { id: toastId });
+          const swapRes = await fetch("/api/contract-swap", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transactionId: txId,
+              accountId: userAddress,
+              targetTokenId: recvToken.tokenId,
+            }),
+          });
+          const swapData = await swapRes.json();
+          if (!swapRes.ok || !swapData.success) throw new Error(swapData.error || "Token delivery failed");
+
           toast.success("Swap Complete!", {
             id: toastId,
-            description: `Swapped ${payAmount} HBAR → ${receiveAmount} ${recvToken.symbol} via Smart Contract.`,
+            description: `Swapped ${payAmount} HBAR → ${swapData.amountOut} ${recvToken.symbol} via Smart Contract.`,
             action: {
-              label: "View HashScan",
+              label: "View Contract Call",
               onClick: () => window.open(`https://hashscan.io/testnet/transaction/${txId}`, "_blank")
             }
           });
@@ -204,7 +219,7 @@ export default function SwapInterface() {
           return;
         } catch (hbarErr: any) {
           console.warn("HBAR Smart Contract swap failed. Falling back to broker...", hbarErr);
-          toast.loading("Smart contract failed. Falling back to Treasury Broker...", { id: toastId });
+          toast.loading("Falling back to Treasury Broker...", { id: toastId });
         }
       }
 
@@ -221,7 +236,7 @@ export default function SwapInterface() {
           const txId = await executeVeloMockSwap(
             hashconnect,
             userAddress,
-            "0.0.9167401", // ROUTER_CONTRACT_ID
+            "0.0.9167460", // ROUTER_CONTRACT_ID
             payToken.tokenId,
             tokenAAddress,
             tokenBAddress,

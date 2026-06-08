@@ -33,7 +33,7 @@ async function main() {
   client.setOperator(treasuryId, treasuryKey);
 
   // The new decentralized Smart Contract Router ID
-  const ROUTER_CONTRACT_ID = "0.0.9167401";
+  const ROUTER_CONTRACT_ID = "0.0.9167460";
 
   // All HTS tokens supported by Velo swap
   const TOKEN_IDS = [

@@ -26,6 +26,24 @@ contract VeloMockRouter is Ownable {
     uint256 public feeBasisPoints;
     uint256 public exchangeRate;
 
+    /// @notice Emitted for HTS token -> HTS token swaps (on-chain transfer via allowance).
+    event SwapExecuted(
+        address indexed user,
+        address indexed tokenA,
+        address indexed tokenB,
+        uint256 amountAIn,
+        uint256 amountBOut,
+        uint256 feeDeducted
+    );
+
+    /// @notice Emitted for HBAR -> token swaps. Backend listens to this and sends tokens.
+    event HbarSwapRequested(
+        address indexed user,
+        address indexed tokenOut,
+        uint256 hbarAmountIn,
+        uint256 expectedTokenOut
+    );
+
     constructor(
         address _treasuryWallet,
         uint256 _feeBasisPoints,
@@ -53,40 +71,36 @@ contract VeloMockRouter is Ownable {
 
         uint256 amountBOut = amountAIn * exchangeRate;
         require(IERC20(tokenB).transferFrom(treasuryWallet, msg.sender, amountBOut), "Treasury TransferFrom failed");
+
+        emit SwapExecuted(msg.sender, tokenA, tokenB, amountAIn, amountBOut, feeAmount);
     }
 
     /**
-     * @notice Swap native HBAR for an HTS token.
-     * Caller attaches HBAR to the transaction (msg.value in tinybars).
-     * The contract forwards HBAR to the treasury and pulls Token B from
-     * the treasury's allowance directly to the caller.
-     * @param tokenB  EVM address of the output HTS token.
-     * @param amountBOut Pre-calculated output amount (computed on frontend using live prices).
+     * @notice HBAR -> Token swap entry point.
+     * User attaches HBAR; contract holds it and emits HbarSwapRequested.
+     * The Velo backend listens for this event (or verifies via mirror node)
+     * and sends the output token to the user from the treasury.
+     * This makes the transaction verifiably on-chain as a CONTRACT CALL.
      */
     function swapHbarForToken(
-        address tokenB,
-        uint256 amountBOut
+        address tokenOut,
+        uint256 expectedTokenOut
     ) external payable {
         require(msg.value > 0, "Must attach HBAR");
-        require(amountBOut > 0, "Output amount must be greater than zero");
-
-        // Pull Token B from treasury to the user
-        // Treasury must have pre-approved this contract via AccountAllowanceApproveTransaction
-        require(IERC20(tokenB).transferFrom(treasuryWallet, msg.sender, amountBOut), "Treasury payout failed");
-
-        // HBAR stays in the contract balance.
-        // The owner (treasury) can withdraw accumulated HBAR via withdrawHbar().
+        require(expectedTokenOut > 0, "Expected output must be > 0");
+        // HBAR is held by the contract. Backend verifies and pays out tokens.
+        emit HbarSwapRequested(msg.sender, tokenOut, msg.value, expectedTokenOut);
     }
 
-    // Allow contract to receive HBAR
+    // Allow contract to receive plain HBAR transfers
     receive() external payable {}
 
-    /// @notice Withdraw accumulated HBAR from the contract to the owner.
+    /// @notice Owner can sweep accumulated HBAR to treasury.
     function withdrawHbar() external onlyOwner {
         uint256 bal = address(this).balance;
         require(bal > 0, "No HBAR to withdraw");
-        (bool sent, ) = payable(owner()).call{value: bal}("");
-        require(sent, "HBAR withdrawal failed");
+        (bool sent, ) = payable(treasuryWallet).call{value: bal}("");
+        require(sent, "Withdrawal failed");
     }
 
     function setTreasuryWallet(address _newTreasury) external onlyOwner {
