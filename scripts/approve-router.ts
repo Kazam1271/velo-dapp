@@ -3,7 +3,8 @@ import {
   AccountId,
   PrivateKey,
   TokenId,
-  AccountAllowanceApproveTransaction
+  AccountAllowanceApproveTransaction,
+  Hbar
 } from "@hiero-ledger/sdk";
 import * as dotenv from "dotenv";
 
@@ -34,36 +35,55 @@ async function main() {
   // The new decentralized Smart Contract Router ID
   const ROUTER_CONTRACT_ID = "0.0.9167086";
 
-  // Velo Mock Tokens
-  const VELO_TOKEN_ID = "0.0.8725045";
-  const USDC_TOKEN_ID = "0.0.8734118";
+  // All HTS tokens supported by Velo swap
+  const TOKEN_IDS = [
+    { symbol: "VELO",  id: "0.0.8725045" },
+    { symbol: "USDC",  id: "0.0.8735221" }, // ✅ Correct USDC
+    { symbol: "USDT",  id: "0.0.8734118" },
+    { symbol: "SAUCE", id: "0.0.8735149" },
+    { symbol: "BONZO", id: "0.0.8735150" },
+    { symbol: "PACK",  id: "0.0.8735151" },
+    { symbol: "WHBAR", id: "0.0.8735222" },
+  ];
 
-  console.log(`Approving Router Contract (${ROUTER_CONTRACT_ID}) to spend Treasury Tokens...`);
+  console.log(`Approving Router Contract (${ROUTER_CONTRACT_ID}) to spend ALL Treasury Tokens...`);
 
   // Max allowance to prevent having to re-approve
   const MAX_ALLOWANCE = 100_000_000_000_000;
 
-  const allowanceTx = new AccountAllowanceApproveTransaction()
-    .approveTokenAllowance(
-      TokenId.fromString(VELO_TOKEN_ID),
-      AccountId.fromString(treasuryId),
-      AccountId.fromString(ROUTER_CONTRACT_ID),
-      MAX_ALLOWANCE
-    )
-    .approveTokenAllowance(
-      TokenId.fromString(USDC_TOKEN_ID),
+  let allowanceTx = new AccountAllowanceApproveTransaction();
+  for (const token of TOKEN_IDS) {
+    console.log(`  - Approving ${token.symbol} (${token.id})`);
+    allowanceTx = allowanceTx.approveTokenAllowance(
+      TokenId.fromString(token.id),
       AccountId.fromString(treasuryId),
       AccountId.fromString(ROUTER_CONTRACT_ID),
       MAX_ALLOWANCE
     );
+  }
 
-  console.log("Executing transaction...");
-  const txResponse = await allowanceTx.execute(client);
-  const receipt = await txResponse.getReceipt(client);
+  console.log("Executing approvals one token at a time to avoid fee issues...");
 
-  console.log(`\n✅ SUCCESS! Treasury has approved the Router Contract!`);
-  console.log(`Status: ${receipt.status.toString()}`);
-  
+  for (const token of TOKEN_IDS) {
+    try {
+      const singleTx = new AccountAllowanceApproveTransaction()
+        .approveTokenAllowance(
+          TokenId.fromString(token.id),
+          AccountId.fromString(treasuryId),
+          AccountId.fromString(ROUTER_CONTRACT_ID),
+          MAX_ALLOWANCE
+        )
+        .setMaxTransactionFee(new Hbar(2)); // Ensure adequate fee per approval
+
+      const txResponse = await singleTx.execute(client);
+      const receipt = await txResponse.getReceipt(client);
+      console.log(`  ✅ ${token.symbol}: ${receipt.status.toString()}`);
+    } catch (err: any) {
+      console.error(`  ❌ ${token.symbol} FAILED:`, err.message || err);
+    }
+  }
+
+  console.log(`\n✅ All approvals complete!`);
   process.exit(0);
 }
 
