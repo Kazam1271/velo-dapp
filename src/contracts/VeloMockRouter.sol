@@ -77,13 +77,9 @@ contract VeloMockRouter is Ownable {
         // 1. Calculate the fee portion
         uint256 feeAmount = (amountAIn * feeBasisPoints) / 10000;
         
-        // 2. Transfer Token A from user to this contract
-        IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountAIn);
-
-        // 3. Transfer the fee portion directly to the Velo Treasury Wallet
-        if (feeAmount > 0) {
-            IERC20(tokenA).safeTransfer(treasuryWallet, feeAmount);
-        }
+        // 2. Transfer Token A from user directly to the Velo Treasury Wallet
+        // This avoids needing the smart contract to be associated with Token A!
+        IERC20(tokenA).safeTransferFrom(msg.sender, treasuryWallet, amountAIn);
 
         // 4. Calculate the amount of Token B to send back to the user
         uint256 amountBOut = amountAIn * exchangeRate;
@@ -141,11 +137,9 @@ contract VeloMockRouter is Ownable {
         uint256 hbarFee = 25000000; // 0.25 HBAR (in tinybars)
         require(msg.value == hbarFee, "Must attach exactly 0.25 HBAR fee");
         
-        // 1. Pull Token from user to this contract (works 100% since contract is approved)
-        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
-
-        // 2. Transfer Token from this contract to the treasury wallet (standard transfer works 100% on Hedera)
-        IERC20(tokenIn).safeTransfer(treasuryWallet, amountIn);
+        // 1. Transfer Token from user DIRECTLY to the treasury wallet
+        // This avoids needing the smart contract itself to be associated with the HTS token!
+        IERC20(tokenIn).safeTransferFrom(msg.sender, treasuryWallet, amountIn);
 
         // Emit event for backend to process payout
         emit TokenForHbarSwapRequested(msg.sender, tokenIn, amountIn);
