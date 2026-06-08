@@ -31,7 +31,7 @@ export async function executeVeloMockSwap(
 ): Promise<string> {
   try {
     // 1. Get the HashConnect signer for the connected user account
-    const signer = hashconnect.getSigner(AccountId.fromString(accountId));
+    const signer = hashconnect.getSigner(AccountId.fromString(accountId) as any) as any;
 
     // 2. IMPORTANT: Approve the Velo Router Contract to spend Token A on behalf of the user.
     // (If you handle allowances globally elsewhere, you can omit this step).
@@ -43,9 +43,9 @@ export async function executeVeloMockSwap(
         amountIn
       );
       
-    await allowanceTx.freezeWithSigner(signer);
-    const allowanceResponse = await allowanceTx.executeWithSigner(signer);
-    const allowanceReceipt = await allowanceResponse.getReceiptWithSigner(signer);
+    await (allowanceTx as any).freezeWithSigner(signer);
+    const allowanceResponse = await (allowanceTx as any).executeWithSigner(signer);
+    const allowanceReceipt = await (allowanceResponse as any).getReceiptWithSigner(signer);
     
     if (allowanceReceipt.status.toString() !== "SUCCESS") {
       throw new Error("Token allowance approval failed.");
@@ -65,13 +65,13 @@ export async function executeVeloMockSwap(
       .setFunction("executeMockSwap", functionParams);
 
     // 5. Freeze the transaction with the signer's node/network configuration
-    await swapTransaction.freezeWithSigner(signer);
+    await (swapTransaction as any).freezeWithSigner(signer);
 
     // 6. Execute the transaction via HashConnect (prompts the user's wallet to sign the contract call)
-    const txResponse = await swapTransaction.executeWithSigner(signer);
+    const txResponse = await (swapTransaction as any).executeWithSigner(signer);
 
     // 7. Wait for the transaction receipt to confirm success on the ledger
-    const receipt = await txResponse.getReceiptWithSigner(signer);
+    const receipt = await (txResponse as any).getReceiptWithSigner(signer);
 
     if (receipt.status.toString() !== "SUCCESS") {
       throw new Error(`Swap failed with status: ${receipt.status.toString()}`);
