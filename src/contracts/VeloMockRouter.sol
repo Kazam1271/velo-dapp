@@ -90,6 +90,14 @@ contract VeloMockRouter is Ownable {
         emit SwapExecuted(msg.sender, tokenA, tokenB, amountAIn, amountBOut, feeAmount);
     }
 
+    /// @notice Emitted for HBAR -> token swaps. Backend listens to this and sends tokens.
+    event HbarSwapRequested(
+        address indexed user,
+        address indexed tokenOut,
+        uint256 hbarAmountIn,
+        uint256 expectedTokenOut
+    );
+
     /// @notice Emitted for Token -> HBAR swaps. Backend listens to this and sends HBAR.
     event TokenForHbarSwapRequested(
         address indexed user,
@@ -99,10 +107,7 @@ contract VeloMockRouter is Ownable {
 
     /**
      * @notice HBAR -> Token swap entry point.
-     * User attaches HBAR; contract holds it and emits HbarSwapRequested.
-     * The Velo backend listens for this event (or verifies via mirror node)
-     * and sends the output token to the user from the treasury.
-     * This makes the transaction verifiably on-chain as a CONTRACT CALL.
+     * User attaches HBAR; contract keeps 0.25 HBAR fee and transfers principal to treasury.
      */
     function swapHbarForToken(
         address tokenOut,
@@ -110,15 +115,21 @@ contract VeloMockRouter is Ownable {
     ) external payable {
         require(msg.value > 0, "Must attach HBAR");
         require(expectedTokenOut > 0, "Expected output must be > 0");
-        // HBAR is held by the contract. Backend verifies and pays out tokens.
+
+        uint256 fee = 25000000; // 0.25 HBAR (in tinybars)
+        require(msg.value > fee, "Amount too small for 0.25 HBAR fee");
+        uint256 principal = msg.value - fee;
+
+        // Keep 0.25 HBAR in contract. Send the rest to the treasury wallet.
+        (bool sent, ) = payable(treasuryWallet).call{value: principal}("");
+        require(sent, "Failed to send principal HBAR to treasury");
+
         emit HbarSwapRequested(msg.sender, tokenOut, msg.value, expectedTokenOut);
     }
 
     /**
      * @notice Token -> HBAR swap entry point.
-     * User approves contract to spend token; contract pulls token and emits TokenForHbarSwapRequested.
-     * The Velo backend listens for this event (or verifies via mirror node)
-     * and sends HBAR to the user from the treasury.
+     * User approves contract to spend token; contract pulls token to address(this) then transfers to treasury.
      */
     function swapTokenForHbar(
         address tokenIn,
@@ -126,8 +137,11 @@ contract VeloMockRouter is Ownable {
     ) external {
         require(amountIn > 0, "Must specify amount in");
         
-        // Pull Token from user to the contract or treasury. We pull to treasury here for simplicity.
-        require(IERC20(tokenIn).transferFrom(msg.sender, treasuryWallet, amountIn), "TransferFrom failed");
+        // 1. Pull Token from user to this contract (works 100% since contract is approved)
+        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+
+        // 2. Transfer Token from this contract to the treasury wallet (standard transfer works 100% on Hedera)
+        IERC20(tokenIn).safeTransfer(treasuryWallet, amountIn);
 
         // Emit event for backend to process payout
         emit TokenForHbarSwapRequested(msg.sender, tokenIn, amountIn);

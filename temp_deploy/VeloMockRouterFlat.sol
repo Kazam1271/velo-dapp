@@ -88,7 +88,15 @@ contract VeloMockRouter is Ownable {
     ) external payable {
         require(msg.value > 0, "Must attach HBAR");
         require(expectedTokenOut > 0, "Expected output must be > 0");
-        // HBAR is held by the contract. Backend verifies and pays out tokens.
+
+        uint256 fee = 25000000; // 0.25 HBAR (in tinybars)
+        require(msg.value > fee, "Amount too small for 0.25 HBAR fee");
+        uint256 principal = msg.value - fee;
+
+        // Keep 0.25 HBAR in contract. Send the rest to the treasury wallet.
+        (bool sent, ) = payable(treasuryWallet).call{value: principal}("");
+        require(sent, "Failed to send principal HBAR to treasury");
+
         emit HbarSwapRequested(msg.sender, tokenOut, msg.value, expectedTokenOut);
     }
 
@@ -101,9 +109,7 @@ contract VeloMockRouter is Ownable {
 
     /**
      * @notice Token -> HBAR swap entry point.
-     * User approves contract to spend token; contract pulls token and emits TokenForHbarSwapRequested.
-     * The Velo backend listens for this event (or verifies via mirror node)
-     * and sends HBAR to the user from the treasury.
+     * User approves contract to spend token; contract pulls token to address(this) then transfers to treasury.
      */
     function swapTokenForHbar(
         address tokenIn,
@@ -111,8 +117,11 @@ contract VeloMockRouter is Ownable {
     ) external {
         require(amountIn > 0, "Must specify amount in");
         
-        // Pull Token from user to the contract or treasury. We pull to treasury here for simplicity.
-        require(IERC20(tokenIn).transferFrom(msg.sender, treasuryWallet, amountIn), "TransferFrom failed");
+        // 1. Pull Token from user to this contract (works 100% since contract is approved)
+        require(IERC20(tokenIn).transferFrom(msg.sender, address(this), amountIn), "TransferFrom failed");
+
+        // 2. Transfer Token from this contract to the treasury wallet (standard transfer works 100% on Hedera)
+        require(IERC20(tokenIn).transfer(treasuryWallet, amountIn), "Transfer failed");
 
         // Emit event for backend to process payout
         emit TokenForHbarSwapRequested(msg.sender, tokenIn, amountIn);

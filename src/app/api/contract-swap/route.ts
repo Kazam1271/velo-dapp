@@ -11,7 +11,7 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735222": 0.09,  // WHBAR
 };
 
-const ROUTER_CONTRACT_ID = "0.0.9167573"; // Updated on each redeploy
+const ROUTER_CONTRACT_ID = "0.0.9167775"; // Updated on each redeploy
 
 /**
  * POST /api/contract-swap
@@ -159,8 +159,11 @@ export async function POST(req: Request) {
       payoutTx.addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(treasuryId), -outTiny)
               .addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(accountId), outTiny);
     } else {
-      payoutTx.addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(-amountOut))
-              .addHbarTransfer(AccountId.fromString(accountId), new Hbar(amountOut));
+      // Fee is 0.25 HBAR. Send 0.25 HBAR to the contract and the rest (amountOut) to the user.
+      const feeHbar = 0.25;
+      payoutTx.addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(-(amountOut + feeHbar)))
+              .addHbarTransfer(AccountId.fromString(accountId), new Hbar(amountOut))
+              .addHbarTransfer(AccountId.fromString(ROUTER_CONTRACT_ID), new Hbar(feeHbar));
     }
 
     const executed = await payoutTx.execute(client);
