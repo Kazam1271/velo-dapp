@@ -11,7 +11,7 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735222": 0.09,  // WHBAR
 };
 
-const ROUTER_CONTRACT_ID = "0.0.9167775"; // Updated on each redeploy
+const ROUTER_CONTRACT_ID = "0.0.9167877"; // Updated on each redeploy
 
 /**
  * POST /api/contract-swap
