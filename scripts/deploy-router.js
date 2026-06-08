@@ -75,6 +75,7 @@ async function main() {
     const contractCreateFlow = new ContractCreateFlow()
         .setBytecode(bytecode)
         .setGas(2_000_000)
+        .setMaxAutomaticTokenAssociations(100)
         .setConstructorParameters(constructorParams);
 
     const txResponse = await contractCreateFlow.execute(client);
@@ -87,9 +88,15 @@ async function main() {
     // Read SwapInterface.tsx and replace 0.0.9167775 with new contract id
     const swapPath = path.resolve(__dirname, '../src/components/SwapInterface.tsx');
     let swapCode = fs.readFileSync(swapPath, 'utf8');
-    swapCode = swapCode.replace(/0\.0\.9167775/g, newContractId.toString());
+    swapCode = swapCode.replace(/0\.0\.916\d{4}/g, newContractId.toString());
     fs.writeFileSync(swapPath, swapCode);
     console.log(`Updated SwapInterface.tsx with new Contract ID: ${newContractId.toString()}`);
+
+    const routePath = path.resolve(__dirname, '../src/app/api/contract-swap/route.ts');
+    let routeCode = fs.readFileSync(routePath, 'utf8');
+    routeCode = routeCode.replace(/0\.0\.916\d{4}/g, newContractId.toString());
+    fs.writeFileSync(routePath, routeCode);
+    console.log(`Updated route.ts with new Contract ID: ${newContractId.toString()}`);
 }
 
 main().catch(console.error);
