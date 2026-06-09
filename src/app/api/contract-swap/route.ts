@@ -348,15 +348,19 @@ export async function POST(req: Request) {
         );
     } else {
       // Send HBAR from treasury to user.
-      // Note: We do NOT send the 0.25 HBAR fee back — it stays in the contract.
+      // CRITICAL: Use Hbar.fromTinybars(outTiny) — NOT new Hbar(amountOut).
+      // amountOut is a raw float (e.g. 29.975847 HBAR). When Hedera's SDK converts
+      // that float to tinybars internally it gets 2997584700.0000... which triggers
+      // "Hbar in tinybars contains decimals". outTiny is already Math.floor()'d so
+      // it is guaranteed to be a whole-number tinybar value.
       payoutTx
         .addHbarTransfer(
           AccountId.fromString(TREASURY_ID),
-          new Hbar(-amountOut)
+          Hbar.fromTinybars(-outTiny)
         )
         .addHbarTransfer(
           AccountId.fromString(accountId),
-          new Hbar(amountOut)
+          Hbar.fromTinybars(outTiny)
         );
     }
 
