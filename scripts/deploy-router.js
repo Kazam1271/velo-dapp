@@ -75,6 +75,7 @@ async function main() {
     const contractCreateFlow = new ContractCreateFlow()
         .setBytecode(bytecode)
         .setGas(2_000_000)
+        .setAdminKey(privateKey)
         .setMaxAutomaticTokenAssociations(100)
         .setConstructorParameters(constructorParams);
 
@@ -85,18 +86,20 @@ async function main() {
     console.log(`\n✅ SUCCESS: VeloMockRouter Deployed!`);
     console.log(`CONTRACT ID: ${newContractId.toString()}`);
 
-    // Read SwapInterface.tsx and replace 0.0.9167775 with new contract id
+    // Read SwapInterface.tsx and replace contract id
     const swapPath = path.resolve(__dirname, '../src/components/SwapInterface.tsx');
     let swapCode = fs.readFileSync(swapPath, 'utf8');
-    swapCode = swapCode.replace(/0\.0\.916\d{4}/g, newContractId.toString());
+    swapCode = swapCode.replace(/0\.0\.91[0-9]{4,6}/g, newContractId.toString());
     fs.writeFileSync(swapPath, swapCode);
     console.log(`Updated SwapInterface.tsx with new Contract ID: ${newContractId.toString()}`);
 
     const routePath = path.resolve(__dirname, '../src/app/api/contract-swap/route.ts');
     let routeCode = fs.readFileSync(routePath, 'utf8');
-    routeCode = routeCode.replace(/0\.0\.916\d{4}/g, newContractId.toString());
+    routeCode = routeCode.replace(/0\.0\.91[0-9]{4,6}/g, newContractId.toString());
     fs.writeFileSync(routePath, routeCode);
     console.log(`Updated route.ts with new Contract ID: ${newContractId.toString()}`);
+
+    console.log("Deployment completed.");
 }
 
 main().catch(console.error);

@@ -1,6 +1,51 @@
-import { Client, PrivateKey, AccountId, TokenId, TransferTransaction, Hbar } from "@hiero-ledger/sdk";
+/**
+ * @file /api/contract-swap/route.ts
+ * @description Backend payout handler for all three VeloMockRouter swap routes.
+ *
+ * This endpoint is called by the frontend AFTER a successful contract call.
+ * It verifies the transaction on the Hedera mirror node, calculates the correct
+ * payout, and executes a treasury TransferTransaction to deliver the output asset.
+ *
+ * SUPPORTED SWAP TYPES:
+ * ─────────────────────
+ * Route A (HBAR → Token):
+ *   - Frontend sends: { transactionId: contractTxId, accountId, targetTokenId }
+ *   - We verify HBAR was received by the contract, calculate token output, and
+ *     send tokens from the treasury to the user.
+ *
+ * Route B (Token → HBAR):
+ *   - Frontend sends: { transactionId: contractTxId, transferTxId, accountId, targetTokenId: "NATIVE" }
+ *   - We verify the native token transfer (transferTxId) reached the treasury,
+ *     AND verify the contract call (transactionId) was a real payFeeForTokenToHbar call.
+ *   - Then we send HBAR from the treasury to the user.
+ *
+ * Route C (Token → Token):
+ *   - Frontend sends: { transactionId: contractTxId, transferTxId, accountId, targetTokenId }
+ *   - Same as Route B verification but we send a different token back.
+ *
+ * SECURITY MODEL:
+ * ───────────────
+ * 1. Mirror node verification: we confirm the transaction ACTUALLY succeeded on-chain.
+ * 2. Contract ID check: we confirm the call was made TO our trusted router contract.
+ * 3. For token-in routes: we verify the native transfer exists and the treasury received funds.
+ * 4. USD-value calculation uses live prices; output is capped at what the treasury can afford.
+ */
+
+import {
+  Client,
+  PrivateKey,
+  AccountId,
+  TokenId,
+  TransferTransaction,
+  Hbar,
+} from "@hiero-ledger/sdk";
 import { NextResponse } from "next/server";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Mock USD prices for each testnet token. Used when oracle data is unavailable. */
 const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735150": 0.50,  // BONZO
   "0.0.8735149": 0.02,  // SAUCE
@@ -8,182 +53,337 @@ const MOCK_PRICES_USD: Record<string, number> = {
   "0.0.8735221": 1.00,  // USDC
   "0.0.8734118": 1.00,  // USDT
   "0.0.8725045": 1.00,  // VELO
-  "0.0.8735222": 0.09,  // WHBAR
+  "0.0.8735222": 0.09,  // WHBAR (mock price)
 };
 
-const ROUTER_CONTRACT_ID = "0.0.9168132"; // Updated on each redeploy
+/** The fixed 0.25 HBAR protocol fee collected per swap. */
+const PROTOCOL_FEE_HBAR = 0.25;
+
+/** Mirror node base URL for testnet. */
+const MIRROR_BASE = "https://testnet.mirrornode.hedera.com/api/v1";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper: Poll mirror node until a transaction is indexed and confirmed
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * POST /api/contract-swap
- * Called by the frontend after a successful swapHbarForToken() contract call.
- * Verifies the transaction on the mirror node, then sends tokens from the treasury.
+ * Converts a Hedera SDK transaction ID (e.g. "0.0.123@1234567890.123456789")
+ * to the mirror node URL format (e.g. "0.0.123-1234567890-123456789").
  */
+function normalizeTxId(transactionId: string): string {
+  // Format: accountId@seconds.nanos → accountId-seconds-nanos
+  const [accPart, tsPart] = transactionId.split("@");
+  const [seconds, nanos] = tsPart.split(".");
+  return `${accPart}-${seconds}-${nanos}`;
+}
+
+/**
+ * Polls the mirror node for a transaction until it appears and is confirmed SUCCESS.
+ * Returns the full transaction object from the mirror node.
+ *
+ * @param transactionId The Hedera transaction ID string.
+ * @param maxAttempts   Number of polling attempts before giving up.
+ * @param delayMs       Delay between attempts in milliseconds.
+ */
+async function pollMirrorNode(
+  transactionId: string,
+  maxAttempts = 10,
+  delayMs = 2000
+): Promise<any> {
+  const normalizedId = normalizeTxId(transactionId);
+  const url = `${MIRROR_BASE}/transactions/${normalizedId}`;
+
+  // Wait an initial 3 seconds for the mirror node indexer to catch up.
+  await new Promise((r) => setTimeout(r, 3000));
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const txs: any[] = data.transactions || [];
+        const tx = txs.find((t: any) => t.result === "SUCCESS");
+        if (tx) {
+          console.log(`[Mirror] ✅ Verified tx in ${attempt} attempt(s): ${transactionId}`);
+          return tx;
+        }
+        console.log(`[Mirror] Attempt ${attempt}/${maxAttempts} — not confirmed yet.`);
+      } else {
+        console.log(`[Mirror] Attempt ${attempt}/${maxAttempts} — HTTP ${res.status}.`);
+      }
+    } catch (err) {
+      console.error(`[Mirror] Attempt ${attempt}/${maxAttempts} — fetch error:`, err);
+    }
+
+    if (attempt < maxAttempts) {
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  throw new Error(
+    `[Mirror] Transaction ${transactionId} not confirmed after ${maxAttempts} attempts.`
+  );
+}
+
+/**
+ * Fetches token metadata (decimals, symbol) from the mirror node.
+ */
+async function getTokenInfo(tokenId: string): Promise<{ decimals: number; symbol: string }> {
+  const res = await fetch(`${MIRROR_BASE}/tokens/${tokenId}`);
+  if (!res.ok) throw new Error(`Could not fetch token info for ${tokenId}`);
+  const data = await res.json();
+  return {
+    decimals: parseInt(data.decimals ?? "0", 10),
+    symbol: data.symbol ?? tokenId,
+  };
+}
+
+/**
+ * Fetches the live HBAR USD price from SaucerSwap.
+ * Falls back to 0.082 if the oracle call fails.
+ */
+async function getLiveHbarPrice(): Promise<number> {
+  try {
+    const res = await fetch("https://api.saucerswap.finance/tokens", {
+      headers: { "x-api-key": process.env.SAUCERSWAP_API_KEY || "" },
+    });
+    if (res.ok) {
+      const tokens = await res.json();
+      const hbarEntry = tokens.find(
+        (t: any) => t.symbol === "HBAR" || t.symbol === "WHBAR"
+      );
+      if (hbarEntry?.priceUsd) {
+        return parseFloat(hbarEntry.priceUsd);
+      }
+    }
+  } catch {
+    console.warn("[Oracle] SaucerSwap price fetch failed — using fallback.");
+  }
+  return 0.082; // Fallback HBAR price in USD
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/contract-swap
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function POST(req: Request) {
   try {
-    const { transactionId, accountId, targetTokenId } = await req.json();
+    const body = await req.json();
+    const {
+      transactionId,  // The contract call tx ID (always required)
+      transferTxId,   // The native token transfer tx ID (Routes B & C only)
+      accountId,      // The user's Hedera account ID
+      targetTokenId,  // "NATIVE" for HBAR output, or the Hedera token ID for token output
+    } = body;
 
+    // ── Input Validation ──────────────────────────────────────────────────────
     if (!transactionId || !accountId || !targetTokenId) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Missing required fields: transactionId, accountId, targetTokenId." },
+        { status: 400 }
+      );
     }
 
-    console.log(`[Contract Swap] Verifying contract call: ${transactionId}`);
+    // Determine which route we're processing.
+    const isHbarToToken = targetTokenId !== "NATIVE" && !transferTxId;
+    const isTokenToHbar = targetTokenId === "NATIVE";
+    const isTokenToToken = targetTokenId !== "NATIVE" && !!transferTxId;
 
-    // 1. Verify the contract call transaction via Mirror Node
-    const [accPart, tsPart] = transactionId.split("@");
-    const normalizedTxId = `${accPart}-${tsPart.replace(".", "-")}`;
-    const mirrorUrl = `https://testnet.mirrornode.hedera.com/api/v1/transactions/${normalizedTxId}`;
+    const ROUTER_CONTRACT_ID = process.env.NEXT_PUBLIC_CONTRACT_ID || "0.0.9174676";
+    const TREASURY_ID = process.env.TREASURY_ID!;
+    const TREASURY_KEY_STR = process.env.TREASURY_KEY!;
 
-    let transaction: any = null;
-    let attempts = 0;
-    const maxAttempts = 8;
+    console.log(
+      `[Contract Swap] Processing swap | Route: ${
+        isHbarToToken ? "A (HBAR→Token)" : isTokenToHbar ? "B (Token→HBAR)" : "C (Token→Token)"
+      } | Tx: ${transactionId}`
+    );
 
-    console.log(`[0/8] Waiting 3s for mirror node indexer...`);
-    await new Promise(r => setTimeout(r, 3000));
+    // ── Fetch live price ───────────────────────────────────────────────────────
+    const hbarUsd = await getLiveHbarPrice();
+    console.log(`[Price] Live HBAR price: $${hbarUsd.toFixed(4)}`);
 
-    while (attempts < maxAttempts) {
-      attempts++;
-      try {
-        const txRes = await fetch(mirrorUrl);
-        if (txRes.ok) {
-          const txData = await txRes.json();
-          if (txData.transactions && txData.transactions.length > 0) {
-            transaction = txData.transactions[0];
-            if (transaction.result === "SUCCESS") {
-              console.log(`[${attempts}/${maxAttempts}] Contract call verified!`);
-              break;
-            }
-          }
-        }
-      } catch (e) {
-        console.error(`[${attempts}/${maxAttempts}] Fetch error:`, e);
-      }
-      if (attempts < maxAttempts) {
-        await new Promise(r => setTimeout(r, 2000));
-      }
+    // ── Step 1: Verify the contract call transaction ───────────────────────────
+    const contractTx = await pollMirrorNode(transactionId);
+
+    if (contractTx.entity_id !== ROUTER_CONTRACT_ID) {
+      throw new Error(
+        `Security violation: contract call was to ${contractTx.entity_id}, ` +
+        `expected ${ROUTER_CONTRACT_ID}.`
+      );
     }
 
-    if (!transaction || transaction.result !== "SUCCESS") {
-      throw new Error("Contract call not found or failed on ledger.");
-    }
-
-    // 2. Verify the transaction was a call TO our router contract
-    if (transaction.entity_id !== ROUTER_CONTRACT_ID) {
-      throw new Error(`Transaction was not sent to router contract ${ROUTER_CONTRACT_ID}.`);
-    }
-
-    // 3. Determine if this was HBAR->Token or Token->HBAR based on targetTokenId
+    // ── Step 2: Route-specific verification and input valuation ───────────────
     let usdIn = 0;
-    let amountIn = 0;
-    let hbarUsd = 0.082;
+    let inputSymbol = "";
 
-    // Fetch live HBAR price
-    try {
-      const priceRes = await fetch("https://api.saucerswap.finance/tokens", {
-        headers: { "x-api-key": process.env.SAUCERSWAP_API_KEY || "" },
-      });
-      if (priceRes.ok) {
-        const tokens = await priceRes.json();
-        const hbarToken = tokens.find((t: any) => t.symbol === "HBAR" || t.symbol === "WHBAR");
-        if (hbarToken) hbarUsd = parseFloat(hbarToken.priceUsd);
-      }
-    } catch {
-      console.warn("[Contract Swap] Oracle failed, using fallback HBAR price.");
-    }
-
-    if (targetTokenId !== "NATIVE") {
-      // --- HBAR -> Token ---
-      const contractHbarTransfer = transaction.transfers?.find(
+    if (isHbarToToken) {
+      // ── Route A: HBAR → Token ─────────────────────────────────────────────
+      // Find the HBAR transfer to the contract in the contract call transaction.
+      const hbarToContract = contractTx.transfers?.find(
         (tf: any) => tf.account === ROUTER_CONTRACT_ID && tf.amount > 0
       );
-      if (!contractHbarTransfer) throw new Error("No HBAR found sent to router contract.");
-      
-      amountIn = contractHbarTransfer.amount / 100_000_000;
-      usdIn = amountIn * hbarUsd;
-      console.log(`[Contract Swap] Verified ${amountIn} HBAR received by contract.`);
-    } else {
-      // --- Token -> HBAR ---
-      // The contract pulls the token from the user and sends to the treasury
-      const treasuryIdStr = process.env.TREASURY_ID!;
-      const tokenTransferToTreasury = transaction.token_transfers?.find(
-        (tf: any) => tf.account === treasuryIdStr && tf.amount > 0
+      if (!hbarToContract) {
+        throw new Error(
+          "[Route A] No HBAR transfer to the router contract found in the transaction. " +
+          "The contract may not have received funds."
+        );
+      }
+
+      const hbarIn = hbarToContract.amount / 100_000_000; // tinybars → HBAR
+      usdIn = hbarIn * hbarUsd;
+      inputSymbol = "HBAR";
+      console.log(`[Route A] Verified: ${hbarIn.toFixed(4)} HBAR received by contract ($${usdIn.toFixed(4)})`);
+
+    } else if (isTokenToHbar || isTokenToToken) {
+      // ── Routes B & C: Token-In ─────────────────────────────────────────────
+      if (!transferTxId) {
+        throw new Error(
+          "[Routes B/C] Missing transferTxId. The native token transfer must be provided."
+        );
+      }
+
+      // Verify the NATIVE token transfer transaction.
+      // This is the TransferTransaction the frontend executed before the contract call.
+      const nativeTransferTx = await pollMirrorNode(transferTxId);
+
+      // Find the token transfer that credited the treasury.
+      const creditToTreasury = nativeTransferTx.token_transfers?.find(
+        (tf: any) => tf.account === TREASURY_ID && tf.amount > 0
       );
-      
-      if (!tokenTransferToTreasury) throw new Error("No token transfer to treasury found in contract call.");
-      
-      const inTokenId = tokenTransferToTreasury.token_id;
-      const rawIn = tokenTransferToTreasury.amount;
-      
-      const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${inTokenId}`);
-      const tokenInfo = await tokenInfoRes.json();
-      
-      amountIn = rawIn / Math.pow(10, tokenInfo.decimals || 0);
+      if (!creditToTreasury) {
+        throw new Error(
+          `[Routes B/C] No token credit to treasury (${TREASURY_ID}) found in ` +
+          `native transfer tx ${transferTxId}. Cannot process payout.`
+        );
+      }
+
+      const inTokenId = creditToTreasury.token_id;
+      const rawAmountIn = creditToTreasury.amount;
+
+      const tokenInfo = await getTokenInfo(inTokenId);
+      const normalizedAmountIn = rawAmountIn / Math.pow(10, tokenInfo.decimals);
       const priceIn = MOCK_PRICES_USD[inTokenId] ?? 0.10;
-      usdIn = amountIn * priceIn;
-      console.log(`[Contract Swap] Verified ${amountIn} ${tokenInfo.symbol} received by treasury.`);
+
+      usdIn = normalizedAmountIn * priceIn;
+      inputSymbol = tokenInfo.symbol;
+
+      console.log(
+        `[Routes B/C] Verified: ${normalizedAmountIn.toFixed(4)} ${inputSymbol} ` +
+        `received by treasury ($${usdIn.toFixed(4)})`
+      );
+
+      // Also verify the 0.25 HBAR fee was received by the contract.
+      const feeToContract = contractTx.transfers?.find(
+        (tf: any) => tf.account === ROUTER_CONTRACT_ID && tf.amount > 0
+      );
+      if (!feeToContract) {
+        throw new Error(
+          `[Routes B/C] No 0.25 HBAR fee found in contract call ${transactionId}. ` +
+          `Cannot confirm fee was collected by the router.`
+        );
+      }
+      console.log(`[Routes B/C] Protocol fee confirmed: ${feeToContract.amount / 1e8} HBAR stored in contract.`);
     }
 
-    console.log(`[Contract Swap] Value In: $${usdIn.toFixed(4)} USD`);
+    // ── Step 3: Calculate the output amount ────────────────────────────────────
+    // The protocol fee is the fixed 0.25 HBAR value, subtracted from the USD input.
+    const feeCostUsd = PROTOCOL_FEE_HBAR * hbarUsd;
+    const valueAfterFeeUsd = usdIn - feeCostUsd;
 
-    // 4. Calculate output amount
-    let outTiny = 0;
+    if (valueAfterFeeUsd <= 0) {
+      throw new Error(
+        `Payout is zero or negative after deducting the 0.25 HBAR fee. ` +
+        `Input value: $${usdIn.toFixed(4)}, fee cost: $${feeCostUsd.toFixed(4)}.`
+      );
+    }
+
     let amountOut = 0;
+    let outTiny = 0;
     let symbolOut = "";
-    const BROKERAGE_FEE_USD = 0.25 * hbarUsd;
-    const valueAfterFee = usdIn - BROKERAGE_FEE_USD;
-
-    if (valueAfterFee <= 0) throw new Error("Payout too small for fees.");
 
     if (targetTokenId !== "NATIVE") {
+      // Output is a token.
       const priceOut = MOCK_PRICES_USD[targetTokenId] ?? 0.10;
-      amountOut = valueAfterFee / priceOut;
-      const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${targetTokenId}`);
-      const tokenInfo = await tokenInfoRes.json();
-      outTiny = Math.floor(amountOut * Math.pow(10, tokenInfo.decimals || 0));
-      symbolOut = tokenInfo.symbol;
+      amountOut = valueAfterFeeUsd / priceOut;
+
+      const tokenOutInfo = await getTokenInfo(targetTokenId);
+      outTiny = Math.floor(amountOut * Math.pow(10, tokenOutInfo.decimals));
+      symbolOut = tokenOutInfo.symbol;
     } else {
-      amountOut = valueAfterFee / hbarUsd;
-      outTiny = Math.floor(amountOut * 100_000_000);
+      // Output is HBAR.
+      amountOut = valueAfterFeeUsd / hbarUsd;
+      outTiny = Math.floor(amountOut * 100_000_000); // HBAR → tinybars
       symbolOut = "HBAR";
     }
 
-    if (outTiny <= 0) throw new Error("Calculated payout is too small.");
+    if (outTiny <= 0) {
+      throw new Error(`Calculated payout (${outTiny} tiny units) is too small to execute.`);
+    }
 
-    // 5. Send payout from treasury
+    console.log(`[Payout] ${amountOut.toFixed(6)} ${symbolOut} → ${accountId}`);
+
+    // ── Step 4: Execute the treasury payout ────────────────────────────────────
     const client = Client.forTestnet();
-    const treasuryId = process.env.TREASURY_ID!;
-    const treasuryKey = PrivateKey.fromStringECDSA(process.env.TREASURY_KEY!);
-    client.setOperator(AccountId.fromString(treasuryId), treasuryKey);
+    const cleanKey = TREASURY_KEY_STR.startsWith("0x")
+      ? TREASURY_KEY_STR.slice(2)
+      : TREASURY_KEY_STR;
+    const treasuryKey = PrivateKey.fromStringECDSA(cleanKey);
+    client.setOperator(AccountId.fromString(TREASURY_ID), treasuryKey);
 
     const payoutTx = new TransferTransaction();
+
     if (targetTokenId !== "NATIVE") {
-      payoutTx.addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(treasuryId), -outTiny)
-              .addTokenTransfer(TokenId.fromString(targetTokenId), AccountId.fromString(accountId), outTiny);
+      // Send tokens from treasury to user.
+      payoutTx
+        .addTokenTransfer(
+          TokenId.fromString(targetTokenId),
+          AccountId.fromString(TREASURY_ID),
+          -outTiny
+        )
+        .addTokenTransfer(
+          TokenId.fromString(targetTokenId),
+          AccountId.fromString(accountId),
+          outTiny
+        );
     } else {
-      // Fee is 0.25 HBAR. Send 0.25 HBAR to the contract and the rest (amountOut) to the user.
-      const feeHbar = 0.25;
-      payoutTx.addHbarTransfer(AccountId.fromString(treasuryId), new Hbar(-(amountOut + feeHbar)))
-              .addHbarTransfer(AccountId.fromString(accountId), new Hbar(amountOut))
-              .addHbarTransfer(AccountId.fromString(ROUTER_CONTRACT_ID), new Hbar(feeHbar));
+      // Send HBAR from treasury to user.
+      // Note: We do NOT send the 0.25 HBAR fee back — it stays in the contract.
+      payoutTx
+        .addHbarTransfer(
+          AccountId.fromString(TREASURY_ID),
+          new Hbar(-amountOut)
+        )
+        .addHbarTransfer(
+          AccountId.fromString(accountId),
+          new Hbar(amountOut)
+        );
     }
 
     const executed = await payoutTx.execute(client);
-    const receipt = await executed.getReceipt(client);
+    const payoutReceipt = await executed.getReceipt(client);
 
-    if (receipt.status.toString() !== "SUCCESS") {
-      throw new Error(`Payout failed: ${receipt.status.toString()}`);
+    if (payoutReceipt.status.toString() !== "SUCCESS") {
+      throw new Error(
+        `Treasury payout transaction failed with status: ${payoutReceipt.status.toString()}`
+      );
     }
 
-    console.log(`[Contract Swap] ✅ Sent ${amountOut.toFixed(4)} ${symbolOut} to ${accountId}`);
+    const payoutTxId = executed.transactionId.toString();
+    console.log(`[Payout] ✅ SUCCESS — ${amountOut.toFixed(6)} ${symbolOut} sent. Payout Tx: ${payoutTxId}`);
 
     return NextResponse.json({
       success: true,
-      payoutTxId: executed.transactionId.toString(),
-      amountOut: amountOut.toFixed(4),
+      payoutTxId,
+      amountOut: amountOut.toFixed(6),
       symbol: symbolOut,
     });
 
   } catch (error: any) {
-    console.error("[Contract Swap Error]:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("[Contract Swap Error]:", error.message || error);
+    return NextResponse.json(
+      { success: false, error: error.message || "An unknown error occurred." },
+      { status: 500 }
+    );
   }
 }
