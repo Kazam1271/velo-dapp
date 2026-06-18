@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from '@vercel/analytics/next';
 import "./globals.css";
 
 // Polyfill Buffer for HashConnect/WalletConnect compatibility
@@ -54,6 +55,7 @@ export default function RootLayout({
           {children}
           <Toaster position="bottom-right" theme="dark" />
         </ClientWalletProvider>
+        <Analytics />
       </body>
     </html>
   );
