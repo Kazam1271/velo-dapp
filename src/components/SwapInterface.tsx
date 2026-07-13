@@ -12,6 +12,23 @@ import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/re
 
 const MIRROR_BASE = "https://mainnet-public.mirrornode.hedera.com/api/v1";
 
+/**
+ * Wait for a tx receipt with a timeout — Hedera's JSON-RPC relay is often slow
+ * to return receipts even after the transaction has succeeded on-chain. On
+ * timeout, resolve with the submitted hash (the tx was already broadcast).
+ */
+async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise<any> }, timeoutMs = 15000): Promise<string> {
+  try {
+    const receipt = await Promise.race([
+      tx.wait(),
+      new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    return (receipt as any)?.hash || tx.hash;
+  } catch {
+    return tx.hash;
+  }
+}
+
 async function fetchHederaBalance(evmAddress: string, tokenEvmAddress?: string): Promise<string> {
   try {
     if (!tokenEvmAddress) {
@@ -186,6 +203,11 @@ export default function SwapInterface() {
       // full typed amount reaches the pool.
       const grossIn = parseFloat(payAmount) / PROTOCOL_FEE_FACTOR;
       const amountIn = ethers.parseUnits(grossIn.toFixed(decimalsIn), decimalsIn);
+      // Native HBAR is sent as msg.value, which the Hedera JSON-RPC relay
+      // denominates in weibars (18 decimals) — NOT tinybars. Sending the
+      // 8-decimal amount makes the relay truncate msg.value to ~0 and the
+      // swap revert with "Transaction failed".
+      const hbarValue = ethers.parseUnits(grossIn.toFixed(8), 18);
 
       const decimalsOut = recvToken.symbol === "HBAR" || recvToken.symbol === "WHBAR" ? 8 : recvToken.decimals;
       const expectedOut = parseFloat(receiveAmount);
@@ -221,10 +243,9 @@ export default function SwapInterface() {
           recvToken.evmAddress,
           poolFee,
           minAmountOut,
-          { value: amountIn, gasLimit: GAS_LIMIT }
+          { value: hbarValue, gasLimit: GAS_LIMIT }
         );
-        const receipt = await tx.wait();
-        swapTxHash = receipt.hash || tx.hash;
+        swapTxHash = await waitForReceiptWithTimeout(tx);
       } else {
         const tx = await proxyContract.swapExactTokensForTokens(
           payToken.evmAddress,
@@ -234,8 +255,7 @@ export default function SwapInterface() {
           minAmountOut,
           { gasLimit: GAS_LIMIT }
         );
-        const receipt = await tx.wait();
-        swapTxHash = receipt.hash || tx.hash;
+        swapTxHash = await waitForReceiptWithTimeout(tx);
       }
 
       toast.success("Swap Complete! ✓", {
