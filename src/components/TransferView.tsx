@@ -259,15 +259,26 @@ export default function TransferView() {
         txHash = await waitForReceiptWithTimeout(tx);
       }
 
-      toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
       saveRecentRecipient(recipient, resolvedAddress);
 
-      // Award 100 Velo XP for this transaction (deduped by tx id server-side).
-      fetch("/api/xp/reward", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ walletAddress: evmAddress || accountId, eventType: "transfer", refId: txHash }),
-      }).catch((e) => console.error("XP reward (transfer) failed:", e));
+      // Award Velo XP for this transfer (deduped by tx id server-side) and
+      // surface the earned amount in the success toast.
+      let xpNote = "";
+      try {
+        const xpRes = await fetch("/api/xp/reward", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ walletAddress: evmAddress || accountId, eventType: "transfer", refId: txHash }),
+        });
+        const xpData = await xpRes.json();
+        if (xpData?.success && xpData.xpAwarded) xpNote = `, earned ${xpData.xpAwarded} XP ⚡`;
+      } catch (e) {
+        console.error("XP reward (transfer) failed:", e);
+      }
+
+      toast.success(`Successful${xpNote}`, {
+        description: `Sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`,
+      });
 
       setIsReviewModalOpen(false);
       setAmount("");

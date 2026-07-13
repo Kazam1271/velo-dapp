@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
 
-// 100 XP for any qualifying user transaction (used for airdrop allocation).
-const XP_PER_TX = 100;
+// XP per qualifying user transaction (used for airdrop allocation).
+// Transfers award less than swaps/stakes.
+const XP_BY_EVENT: Record<string, number> = {
+  transfer: 20,
+  stake: 100,
+  swap: 100,
+};
 const EARLY_ADOPTER_XP = 500;
-const ALLOWED_EVENTS = new Set(['transfer', 'stake', 'swap']);
+const ALLOWED_EVENTS = new Set(Object.keys(XP_BY_EVENT));
 
 /**
  * Canonicalize a wallet identifier to a single key so a user's XP never splits
@@ -77,7 +82,8 @@ export async function POST(req: Request) {
       .single();
     if (fetchErr) throw fetchErr;
 
-    const newXp = (current?.xp ?? 0) + XP_PER_TX;
+    const xpAmount = XP_BY_EVENT[eventType];
+    const newXp = (current?.xp ?? 0) + xpAmount;
     const newSwapCount = (current?.swap_count ?? 0) + (eventType === 'swap' ? 1 : 0);
 
     const { error: updErr } = await supabaseAdmin
@@ -88,10 +94,10 @@ export async function POST(req: Request) {
 
     const { error: evErr } = await supabaseAdmin
       .from('xp_events')
-      .insert([{ wallet_address: wallet, event_type: eventType, xp_amount: XP_PER_TX, tx_hash: refId || null }]);
+      .insert([{ wallet_address: wallet, event_type: eventType, xp_amount: xpAmount, tx_hash: refId || null }]);
     if (evErr) throw evErr;
 
-    return NextResponse.json({ success: true, xpAwarded: XP_PER_TX, totalXp: newXp });
+    return NextResponse.json({ success: true, xpAwarded: xpAmount, totalXp: newXp });
   } catch (error: any) {
     console.error('XP Reward Error:', error);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
