@@ -24,7 +24,8 @@ import {
   Trophy
 } from "lucide-react";
 import Image from "next/image";
-import { useHashConnect } from "@/contexts/HashConnectContext";
+import { useAppKitAccount } from "@reown/appkit/react";
+import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 interface TokenBalance {
@@ -49,10 +50,9 @@ interface ActivityItem {
 }
 
 export default function ProfileView() {
-  const hashconnectContext = useHashConnect();
-  const pairingData = hashconnectContext?.pairingData;
-  const isConnected = hashconnectContext?.isConnected;
-  const accountId = pairingData?.accountIds?.[0] || null;
+  const { address: evmAddress, isConnected } = useAppKitAccount();
+  const { hederaAccountId } = useHederaAccount(evmAddress || null);
+  const accountId = hederaAccountId;
   
   const [activeTab, setActiveTab] = useState<'portfolio' | 'activity'>('portfolio');
   const [copiedId, setCopiedId] = useState(false);
