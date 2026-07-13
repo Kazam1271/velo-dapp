@@ -27,7 +27,6 @@ import Image from "next/image";
 import { useAppKitAccount } from "@reown/appkit/react";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { toast } from "sonner";
-import { supabase } from "@/lib/supabase";
 interface TokenBalance {
   name: string;
   ticker: string;
@@ -100,30 +99,25 @@ export default function ProfileView() {
   
   useEffect(() => {
     if (accountId && typeof window !== 'undefined') {
+      // Fetch-or-create the profile server-side (service role) so the Velo ID
+      // is generated once per wallet and persists — client-side writes were
+      // silently blocked by RLS, producing a new ID on every load.
       const fetchProfile = async () => {
         try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('velo_id, avatar_url')
-            .eq('wallet_id', accountId)
-            .single();
-          
-          if (data && data.velo_id) {
-            setVeloId(data.velo_id);
-            if (data.avatar_url) setAvatarUrl(data.avatar_url);
-          } else if (error?.code === 'PGRST116' || !data) {
-            // Generate and save new Velo ID
-            const randomString = Math.random().toString(36).substring(2, 10).toUpperCase();
-            const newVeloId = `V-${randomString}`;
-            
-            await supabase.from('profiles').upsert({ 
-              wallet_id: accountId, 
-              velo_id: newVeloId 
-            });
-            setVeloId(newVeloId);
+          const res = await fetch("/api/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ walletId: accountId }),
+          });
+          const data = await res.json();
+          if (data?.success && data.veloId) {
+            setVeloId(data.veloId);
+            if (data.avatarUrl) setAvatarUrl(data.avatarUrl);
+          } else {
+            setVeloId('V-ERROR');
           }
         } catch (err) {
-          console.error("Error fetching/creating profile from Supabase:", err);
+          console.error("Error fetching/creating profile:", err);
           setVeloId('V-ERROR');
         }
       };
@@ -416,20 +410,18 @@ export default function ProfileView() {
         const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL || "https://gateway.pinata.cloud/ipfs/";
         const ipfsUrl = `${gatewayUrl}${data.IpfsHash}`;
         
-        // 5. Save to Supabase — include velo_id to satisfy any NOT NULL constraint
-        console.log("Attempting to link image to profile for:", accountId, "veloId:", veloId);
+        // 5. Persist via the server-side profile route (service role) — direct
+        // client writes are blocked by RLS.
+        const saveRes = await fetch("/api/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ walletId: accountId, avatarUrl: ipfsUrl }),
+        });
+        const saveData = await saveRes.json();
 
-        const { error: dbError } = await supabase
-          .from('profiles')
-          .upsert({ 
-            wallet_id: accountId, 
-            avatar_url: ipfsUrl,
-            velo_id: veloId,
-          }, { onConflict: 'wallet_id' });
-
-        if (dbError) {
-          console.error("Supabase Link Error Details:", dbError.message, dbError.details);
-          toast.error(`Link failed: ${dbError.message}`);
+        if (!saveData?.success) {
+          console.error("Profile avatar link error:", saveData?.error);
+          toast.error(`Link failed: ${saveData?.error || "unknown error"}`);
           setAvatarUrl(null);
           return;
         }
