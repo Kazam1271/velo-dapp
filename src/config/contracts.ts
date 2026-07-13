@@ -1,3 +1,9 @@
+// Protocol fee taken by VeloMainnetProxy, in basis points. MUST match the
+// on-chain feeBasisPoints() value (owner-settable via scripts/set-fee.cjs).
+export const PROTOCOL_FEE_BPS = 25; // 0.25%
+export const PROTOCOL_FEE_FACTOR = 1 - PROTOCOL_FEE_BPS / 10000;
+export const PROTOCOL_FEE_LABEL = `${PROTOCOL_FEE_BPS / 100}%`;
+
 export const CONTRACTS = {
   // Mainnet Addresses
   SaucerSwapV2Router: "0x00000000000000000000000000000000003c437a", // 0.0.3949434

@@ -3,7 +3,7 @@
 import { ArrowUpDown, ChevronDown, TrendingUp, ShieldCheck, Loader2 } from "lucide-react";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Token, ACTIVE_TOKENS } from "@/config/tokens";
-import { CONTRACTS } from "@/config/contracts";
+import { CONTRACTS, PROTOCOL_FEE_FACTOR, PROTOCOL_FEE_LABEL } from "@/config/contracts";
 import { getBestSaucerSwapQuote } from "@/lib/saucerswap/quoter";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -118,7 +118,7 @@ export default function SwapInterface() {
     setPayUsd((amount * priceIn).toFixed(2));
 
     // HBAR <-> WHBAR is a 1:1 wrap handled directly by the proxy — no pool quote.
-    // The 1% protocol fee is charged ON TOP of the typed amount (see handleSwap),
+    // The protocol fee is charged ON TOP of the typed amount (see handleSwap),
     // so the user receives exactly what they typed.
     if (
       (payToken.symbol === "HBAR" && recvToken.symbol === "WHBAR") ||
@@ -133,9 +133,9 @@ export default function SwapInterface() {
     let cancelled = false;
     setIsQuoting(true);
     const handle = setTimeout(async () => {
-      // The 1% protocol fee is charged ON TOP of the typed amount (the wallet is
-      // debited amount/0.99 and the proxy skims 1%, leaving exactly `amount` for
-      // the pool) — so quote against the full typed amount.
+      // The protocol fee is charged ON TOP of the typed amount (the wallet is
+      // debited amount/(1-fee) and the proxy skims the fee, leaving exactly
+      // `amount` for the pool) — so quote against the full typed amount.
       const decimalsIn = payToken.symbol === "HBAR" || payToken.symbol === "WHBAR" ? 8 : payToken.decimals;
       const decimalsOut = recvToken.symbol === "HBAR" || recvToken.symbol === "WHBAR" ? 8 : recvToken.decimals;
       const tokenInId = payToken.symbol === "HBAR" ? "NATIVE" : payToken.tokenId;
@@ -181,15 +181,15 @@ export default function SwapInterface() {
     try {
       const isNativeHbarIn = payToken.symbol === "HBAR";
       const decimalsIn = isNativeHbarIn || payToken.symbol === "WHBAR" ? 8 : payToken.decimals;
-      // Gross-up: the proxy keeps 1% of amountIn as the protocol fee, so debit
-      // typed/0.99 — the fee comes out of the remaining balance and the full
-      // typed amount reaches the pool.
-      const grossIn = parseFloat(payAmount) / 0.99;
+      // Gross-up: the proxy keeps the protocol fee out of amountIn, so debit
+      // typed/(1-fee) — the fee comes out of the remaining balance and the
+      // full typed amount reaches the pool.
+      const grossIn = parseFloat(payAmount) / PROTOCOL_FEE_FACTOR;
       const amountIn = ethers.parseUnits(grossIn.toFixed(decimalsIn), decimalsIn);
 
       const decimalsOut = recvToken.symbol === "HBAR" || recvToken.symbol === "WHBAR" ? 8 : recvToken.decimals;
       const expectedOut = parseFloat(receiveAmount);
-      // 1% slippage tolerance on top of the 1% protocol fee
+      // 1% slippage tolerance (independent of the protocol fee)
       const minAmountOut = ethers.parseUnits((expectedOut * 0.99).toFixed(decimalsOut), decimalsOut);
 
       if (!walletProvider) throw new Error("Wallet provider not connected");
@@ -275,9 +275,9 @@ export default function SwapInterface() {
 
   const setPercent = (pct: number) => {
     if (!isConnected || isSwapping) return;
-    // The 1% protocol fee is charged on top of the typed amount, so scale the
-    // typed amount down by 0.99 to keep the total debit within the balance.
-    const raw = parseFloat(payBalance) * pct * 0.99;
+    // The protocol fee is charged on top of the typed amount, so scale the
+    // typed amount down to keep the total debit within the balance.
+    const raw = parseFloat(payBalance) * pct * PROTOCOL_FEE_FACTOR;
     setPayAmount(raw.toFixed(2));
   };
 
@@ -297,7 +297,7 @@ export default function SwapInterface() {
             </div>
             <div>
               <div className="text-xs font-bold text-velo-cyan uppercase tracking-wider">Hedera Mainnet</div>
-              <div className="text-white font-semibold">1% Protocol Fee</div>
+              <div className="text-white font-semibold">{PROTOCOL_FEE_LABEL} Protocol Fee</div>
             </div>
           </div>
         </motion.div>
@@ -368,12 +368,12 @@ export default function SwapInterface() {
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Protocol Fee (added on top)</span>
               <span className="text-velo-cyan">
-                +{(parseFloat(payAmount) / 0.99 - parseFloat(payAmount)).toFixed(4)} {payToken.symbol} (1%)
+                +{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR - parseFloat(payAmount)).toFixed(4)} {payToken.symbol} ({PROTOCOL_FEE_LABEL})
               </span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Total Debited</span>
-              <span className="text-white">{(parseFloat(payAmount) / 0.99).toFixed(4)} {payToken.symbol}</span>
+              <span className="text-white">{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR).toFixed(4)} {payToken.symbol}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Routing Path</span>
