@@ -4,8 +4,8 @@ import dynamic from 'next/dynamic';
 import { ReactNode, useEffect, useState } from 'react';
 
 // Dynamically import the actual provider and navigation with SSR disabled
-const DynamicHashConnectProvider = dynamic(
-  () => import('./HashConnectProvider').then((mod) => mod.HashConnectProvider),
+const AppKitProvider = dynamic(
+  () => import('./AppKitProvider'),
   { ssr: false }
 );
 
@@ -13,7 +13,15 @@ const BottomNav = dynamic(() => import('@/components/BottomNav'), { ssr: false }
 const Header = dynamic(() => import('@/components/Header'), { ssr: false });
 import { usePathname } from 'next/navigation';
 
-export function ClientWalletProvider({ children }: { children: ReactNode }) {
+import { State } from 'wagmi';
+
+export function ClientWalletProvider({ 
+  children,
+  initialState
+}: { 
+  children: ReactNode;
+  initialState?: State;
+}) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -28,7 +36,7 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <DynamicHashConnectProvider>
+    <AppKitProvider initialState={initialState}>
       <div className="flex flex-col min-h-screen bg-velo-bg text-white selection:bg-velo-cyan/30">
         {!isLandingPage && <Header />}
         
@@ -44,6 +52,6 @@ export function ClientWalletProvider({ children }: { children: ReactNode }) {
         
         {!isLandingPage && <BottomNav />}
       </div>
-    </DynamicHashConnectProvider>
+    </AppKitProvider>
   );
 }

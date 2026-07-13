@@ -48,7 +48,7 @@ export function HCSDataProvider({ children }: { children: React.ReactNode }) {
     // Boilerplate for Hedera Testnet connection
     let client: Client;
     try {
-      client = Client.forTestnet();
+      client = Client.forMainnet();
       // In a real scenario, we would subscribe to a topic here:
       // new TopicMessageQuery().setTopicId("0.0.xxxxx").subscribe(client, ...);
     } catch (e) {

@@ -19,7 +19,9 @@ import {
   Wallet,
   Loader2,
   ExternalLink,
-  History
+  History,
+  Zap,
+  Trophy
 } from "lucide-react";
 import Image from "next/image";
 import { useHashConnect } from "@/contexts/HashConnectContext";
@@ -66,6 +68,32 @@ export default function ProfileView() {
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
   const [isLoadingActivity, setIsLoadingActivity] = useState(false);
+
+  // Velo XP States
+  const [xp, setXp] = useState<number | null>(null);
+  const [xpRank, setXpRank] = useState<string>("Novice");
+  const [xpSwaps, setXpSwaps] = useState<number>(0);
+
+  useEffect(() => {
+    if (!accountId) {
+      setXp(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/xp/balance?wallet=${encodeURIComponent(accountId)}`);
+        const data = await res.json();
+        if (cancelled || !data?.success) return;
+        setXp(data.xp ?? 0);
+        setXpRank(data.rank || "Novice");
+        setXpSwaps(data.swap_count ?? 0);
+      } catch {
+        /* non-critical */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accountId]);
   const [totalValue, setTotalValue] = useState("0.00");
 
   const [veloId, setVeloId] = useState('Not Connected');
@@ -168,7 +196,7 @@ export default function ProfileView() {
         }
 
         // 2. Fetch Balances
-        const balRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/balances?account.id=${accountId}`);
+        const balRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/balances?account.id=${accountId}`);
         if (balRes.ok) {
           const balData = await balRes.json();
           const accountBal = balData.balances?.[0] || { balance: 0, tokens: [] };
@@ -193,7 +221,7 @@ export default function ProfileView() {
             const enrichedTokens = await Promise.all(
               accountBal.tokens.map(async (token: any) => {
                 try {
-                  const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${token.token_id}`);
+                  const tokenInfoRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/tokens/${token.token_id}`);
                   const tokenInfo = tokenInfoRes.ok ? await tokenInfoRes.json() : {};
                   
                   const decimals = tokenInfo.decimals ? parseInt(tokenInfo.decimals) : 0;
@@ -246,7 +274,7 @@ export default function ProfileView() {
         }
 
         // 4. Fetch Activity (Advanced Smart Parsing)
-        const actRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=20&order=desc`);
+        const actRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/transactions?account.id=${accountId}&limit=20&order=desc`);
         if (actRes.ok) {
           const actData = await actRes.json();
           const items: ActivityItem[] = actData.transactions.map((tx: any) => {
@@ -490,6 +518,31 @@ export default function ProfileView() {
                   </div>
                 </button>
               </div>
+
+              {/* Velo XP Card */}
+              <a href="/leaderboard" className="block w-full">
+                <div className="w-full mt-2 bg-gradient-to-r from-velo-cyan/10 to-transparent border border-velo-cyan/25 rounded-2xl p-4 flex items-center justify-between hover:border-velo-cyan/50 transition-all group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-velo-cyan/15 border border-velo-cyan/30 flex items-center justify-center text-velo-cyan">
+                      <Zap size={18} className="fill-velo-cyan/20" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-[9px] font-black text-gray-500 uppercase tracking-[0.2em]">Velo XP</p>
+                      <p className="text-2xl font-black text-white leading-tight">
+                        {xp === null ? "—" : xp.toLocaleString()}
+                        <span className="text-xs font-bold text-velo-cyan ml-1.5 align-middle">{xpRank}</span>
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-gray-500 group-hover:text-velo-cyan transition-colors">
+                    <div className="text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest">Swaps</p>
+                      <p className="text-sm font-bold text-white/90">{xpSwaps}</p>
+                    </div>
+                    <Trophy size={16} />
+                  </div>
+                </div>
+              </a>
             </div>
           </section>
 

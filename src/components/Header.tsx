@@ -1,12 +1,15 @@
 "use client";
 
-import { Wallet, LogOut, ChevronDown, Copy, Check } from "lucide-react";
+import { Wallet, LogOut, ChevronDown, Copy, Check, Trophy } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useHashConnect } from "@/contexts/HashConnectContext";
-import { HashConnectConnectionState } from "hashconnect";
+import { useAppKitAccount, useDisconnect } from "@reown/appkit/react";
 import { ConnectWalletButton } from "./ConnectWalletButton";
 import Image from "next/image";
 import Link from "next/link";
+import { useHederaAccount } from "@/hooks/useHederaAccount";
+
+import { useBalance } from "wagmi";
+import { formatUnits } from "viem";
 
 export default function Header() {
   const [hbarPrice, setHbarPrice] = useState<string | null>(null);
@@ -14,13 +17,25 @@ export default function Header() {
   const [copied, setCopied] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const hashconnectContext = useHashConnect();
-  const state = hashconnectContext?.state;
-  const pairingData = hashconnectContext?.pairingData;
-  const balance = hashconnectContext?.balance || "0.00";
-  const isConnected = hashconnectContext?.isConnected;
-  const disconnect = hashconnectContext?.disconnect || (() => {});
-  const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
+  const { address, isConnected } = useAppKitAccount();
+  const { disconnect } = useDisconnect();
+  
+  // Fetch balance using wagmi
+  const { data: balanceData } = useBalance({
+    address: address as `0x${string}`,
+    query: {
+      enabled: isConnected && !!address,
+      refetchInterval: 10000,
+    }
+  });
+  
+  const balance = balanceData
+    ? Number(formatUnits(balanceData.value, balanceData.decimals)).toFixed(2)
+    : "0.00";
+  const userAddress = address;
+  const { hederaAccountId } = useHederaAccount(userAddress || null);
+  
+  const displayId = hederaAccountId || (userAddress ? `${userAddress.slice(0,6)}...${userAddress.slice(-4)}` : "");
 
   // ── Fetch live HBAR price ──────────────────────────────────
   useEffect(() => {
@@ -44,6 +59,20 @@ export default function Header() {
     const interval = setInterval(fetchPrice, 60000);
     return () => clearInterval(interval);
   }, []);
+
+  // ── Onboard the wallet into the XP system on connect ──────────
+  // New wallets receive the 500 XP Early Adopter bonus (idempotent server-side).
+  const onboardedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isConnected || !address) return;
+    if (onboardedRef.current === address) return;
+    onboardedRef.current = address;
+    fetch("/api/xp/onboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ walletAddress: address }),
+    }).catch((e) => console.error("XP onboarding failed:", e));
+  }, [isConnected, address]);
 
   // ── Close dropdown on outside click ──────────────
   useEffect(() => {
@@ -91,12 +120,20 @@ export default function Header() {
       <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex">
         <div className="flex items-center gap-2 text-xs text-gray-400 bg-velo-card px-3 py-1.5 rounded-full border border-velo-border">
           <span className="w-2 h-2 rounded-full bg-velo-green glow-green" />
-          Hedera Testnet <span className="text-velo-green font-medium">{hbarPrice || "…"}</span>
+          Hedera Mainnet <span className="text-velo-green font-medium">{hbarPrice || "…"}</span>
         </div>
       </div>
 
-      {/* Right Zone: Wallet */}
-      <div className="flex-1 flex justify-end">
+      {/* Right Zone: Leaderboard + Wallet */}
+      <div className="flex-1 flex justify-end items-center gap-2">
+        <Link
+          href="/leaderboard"
+          aria-label="Leaderboard"
+          title="Velo XP Leaderboard"
+          className="flex items-center justify-center w-10 h-10 rounded-full bg-velo-card border border-velo-border text-velo-cyan hover:border-velo-cyan/60 hover:bg-cyan-950/30 transition-all active:scale-95 shrink-0"
+        >
+          <Trophy size={18} />
+        </Link>
         <div className="relative" ref={dropdownRef}>
           {isConnected && userAddress ? (
             <button
@@ -104,7 +141,7 @@ export default function Header() {
               className="flex items-center gap-2 font-semibold px-4 py-2 rounded-full transition-all bg-velo-card border border-velo-cyan/60 text-velo-cyan hover:bg-cyan-950/40"
             >
               <Wallet size={16} className="shrink-0" />
-              <span>{truncateId(userAddress)}</span>
+              <span>{displayId}</span>
               <ChevronDown size={14} className={`shrink-0 transition-transform ${showDropdown ? "rotate-180" : ""}`} />
             </button>
           ) : (
@@ -116,7 +153,7 @@ export default function Header() {
               <div className="px-4 pt-4 pb-2">
                 <p className="text-[10px] uppercase tracking-widest text-gray-500 mb-1">Account</p>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-mono text-velo-cyan">{userAddress}</span>
+                  <span className="text-sm font-mono text-velo-cyan">{hederaAccountId || userAddress}</span>
                   <button onClick={copyAddress} className="text-gray-400 hover:text-white transition-colors p-1">
                     {copied ? <Check size={13} className="text-velo-green" /> : <Copy size={13} />}
                   </button>

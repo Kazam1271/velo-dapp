@@ -1,10 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 
-// Polyfill Buffer for HashConnect/WalletConnect compatibility
-if (typeof window !== 'undefined') {
-  window.Buffer = window.Buffer || require('buffer').Buffer;
-}
+
 import { ClientWalletProvider } from "@/contexts/ClientWalletProvider";
 import { Toaster } from "sonner";
 
@@ -39,18 +36,26 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+import { headers } from "next/headers";
+import { cookieToInitialState } from "wagmi";
+import { config } from "@/config/appkit";
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headersList = await headers();
+  const cookies = headersList.get('cookie');
+  const initialState = cookieToInitialState(config, cookies);
+
   return (
     <html
       lang="en"
       className="h-full antialiased"
     >
       <body className="min-h-full flex flex-col font-sans">
-        <ClientWalletProvider>
+        <ClientWalletProvider initialState={initialState}>
           {children}
           <Toaster position="bottom-right" theme="dark" />
         </ClientWalletProvider>

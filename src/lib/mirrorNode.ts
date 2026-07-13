@@ -1,4 +1,4 @@
-const MIRROR_NODE_BASE = "https://testnet.mirrornode.hedera.com/api/v1";
+const MIRROR_NODE_BASE = "https://mainnet-public.mirrornode.hedera.com/api/v1";
 
 export interface HederaAccountInfo {
   /** Native account ID, e.g. "0.0.12345" */

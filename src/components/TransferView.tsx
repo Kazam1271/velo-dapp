@@ -236,6 +236,14 @@ export default function TransferView() {
         saveRecentRecipient(recipient, resolvedAddress);
       }
 
+      // Award 100 Velo XP for this transaction (deduped by tx id server-side).
+      const transferTxId = (res as any)?.transactionId?.toString?.();
+      fetch("/api/xp/reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: accountId, eventType: "transfer", refId: transferTxId }),
+      }).catch((e) => console.error("XP reward (transfer) failed:", e));
+
       setIsReviewModalOpen(false);
       setAmount("");
       setRecipient("");

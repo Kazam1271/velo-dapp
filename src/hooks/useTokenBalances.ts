@@ -14,7 +14,7 @@ export function useTokenBalances(hederaAccountId: string | null) {
 
     setIsFetching(true);
     try {
-      const resp = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/accounts/${hederaAccountId}/tokens`);
+      const resp = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${hederaAccountId}/tokens`);
       if (!resp.ok) throw new Error("Mirror Node Error");
       
       const data = await resp.json();

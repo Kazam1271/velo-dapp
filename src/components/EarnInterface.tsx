@@ -121,6 +121,17 @@ export default function EarnPage() {
 
       if (!saveRes.ok) throw new Error("Failed to save stake record.");
 
+      // Award 100 Velo XP for this transaction (deduped by tx id server-side).
+      fetch("/api/xp/reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          walletAddress: userAddress,
+          eventType: "stake",
+          refId: depositResult.transactionId.toString(),
+        }),
+      }).catch((e) => console.error("XP reward (stake) failed:", e));
+
       toast.success("Successfully Staked!", { id: toastId });
       pushAction("staked", selectedToken.symbol, stakeAmount);
       

@@ -30,5 +30,13 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules",
+    "hardhat.config.ts",
+    "hardhat.config.cjs",
+    "temp_deploy",
+    "temp_hh",
+    "scripts/deploy-mainnet-proxy.ts",
+    "compile_and_deploy.ts"
+  ]
 }

@@ -170,7 +170,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-6 text-[10px] uppercase tracking-[0.2em] font-bold">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-full border border-white/10">
                 <span className="text-gray-500">Network:</span>
-                <span className="text-velo-cyan">Hedera Testnet</span>
+                <span className="text-velo-cyan">Hedera Mainnet</span>
                 <div className="w-1.5 h-1.5 rounded-full bg-velo-cyan shadow-[0_0_8px_rgba(34,211,238,0.8)] animate-pulse" />
               </div>
               
@@ -203,14 +203,7 @@ export default function LandingPage() {
             </div>
           </div>
         </footer>
-
       </div>
-      
-      <style jsx global>{`
-        @keyframes shimmer {
-          100% { transform: translateX(100%); }
-        }
-      `}</style>
     </div>
   );
 }
