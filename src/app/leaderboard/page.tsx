@@ -8,6 +8,8 @@ import { useAppKitAccount } from "@reown/appkit/react";
 interface LeaderRow {
   rank: number;
   wallet: string;
+  hederaId: string | null;
+  veloId: string | null;
   displayName: string | null;
   xp: number;
   swaps: number;
@@ -120,10 +122,12 @@ export default function LeaderboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-white truncate">
-                    {row.displayName || shortWallet(row.wallet)}
+                    {row.veloId || row.displayName || row.hederaId || shortWallet(row.wallet)}
                     {isMe && <span className="ml-2 text-[10px] font-bold text-velo-cyan uppercase tracking-wider">You</span>}
                   </div>
-                  <div className="text-[11px] text-gray-500">{row.swaps} swap{row.swaps === 1 ? "" : "s"}</div>
+                  <div className="text-[11px] text-gray-500 font-mono truncate">
+                    {row.hederaId ? `${row.hederaId} · ` : ""}{row.swaps} swap{row.swaps === 1 ? "" : "s"}
+                  </div>
                 </div>
                 <div className="flex items-center gap-1.5 text-velo-cyan font-bold shrink-0">
                   <Zap size={14} className="fill-velo-cyan/20" />
