@@ -2,30 +2,37 @@
 
 import { ArrowUpDown, ChevronDown, Info, TrendingUp, ShieldCheck, RefreshCw, Loader2, Coins } from "lucide-react";
 import { useRef, useState, useEffect, useMemo } from "react";
-import { useHashConnect } from "@/contexts/HashConnectContext";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
-import { 
-  TransferTransaction, 
-  Hbar, 
-  AccountId, 
-  TokenId,
-  TokenAssociateTransaction
-} from "@hiero-ledger/sdk";
+import { useHederaBalance } from "@/hooks/useHederaBalance";
+import { useHederaAccount } from "@/hooks/useHederaAccount";
+import { ethers } from "ethers";
+import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
 import { useHCSData } from "@/contexts/HCSDataProvider";
 
 const TREASURY_ID = "0.0.8642596";
 
+// Minimal ERC20 transfer ABI — HTS tokens expose an ERC20 interface at their EVM address.
+const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount) returns (bool)"];
+
+/** Deterministic "long-zero" EVM address for a Hedera account id ("0.0.x"). */
+function toEvmAddress(idOrAddr: string): string {
+  const s = idOrAddr.trim();
+  if (s.startsWith("0x")) return s;
+  const parts = s.split(".");
+  const num = BigInt(parts[parts.length - 1]);
+  return "0x" + num.toString(16).padStart(40, "0");
+}
+
 export default function EarnPage() {
-  const hashconnectContext = useHashConnect();
-  const hashconnect = hashconnectContext?.hashconnect;
-  const pairingData = hashconnectContext?.pairingData;
-  const isConnected = hashconnectContext?.isConnected;
-  const balance = hashconnectContext?.balance || "0.00";
-  const isRefreshingBalance = hashconnectContext?.isRefreshingBalance || false;
-  const userAddress = isConnected && pairingData ? pairingData.accountIds[0] : null;
+  const { address: evmAddress, isConnected } = useAppKitAccount();
+  const { open } = useAppKit();
+  const { walletProvider } = useAppKitProvider("eip155");
+  const { hederaAccountId } = useHederaAccount(evmAddress || null);
+  const userAddress = hederaAccountId;
+  const { balance, isLoading: isRefreshingBalance } = useHederaBalance(userAddress);
 
   const [isStaking, setIsStaking] = useState(false);
   const [stakeAmount, setStakeAmount] = useState("");
@@ -36,11 +43,6 @@ export default function EarnPage() {
 
   const [activeStakes, setActiveStakes] = useState<any[]>([]);
   const [isFetchingStakes, setIsFetchingStakes] = useState(false);
-
-  const isAssociated = useMemo(() => {
-    if (selectedToken.tokenId === "NATIVE") return true;
-    return liveBalances[selectedToken.tokenId] !== undefined;
-  }, [selectedToken, liveBalances]);
 
   useEffect(() => {
     if (isConnected && userAddress) {
@@ -67,52 +69,49 @@ export default function EarnPage() {
   };
 
   const handleStake = async () => {
-    if (!isConnected || !userAddress || !hashconnect || !stakeAmount || parseFloat(stakeAmount) <= 0) return;
+    if (!isConnected || !userAddress || !walletProvider || !stakeAmount || parseFloat(stakeAmount) <= 0) return;
 
     setIsStaking(true);
     const toastId = toast.loading("Initializing Stake...");
 
     try {
-      if (!hashconnect) throw new Error("Wallet service not ready");
-      const signer = hashconnect.getSigner(AccountId.fromString(userAddress) as any) as any;
-
-      if (!isAssociated && selectedToken.tokenId !== "NATIVE") {
-        toast.loading(`Associating ${selectedToken.symbol}...`, { id: toastId });
-        const associateTx = new TokenAssociateTransaction()
-          .setAccountId(AccountId.fromString(userAddress))
-          .setTokenIds([TokenId.fromString(selectedToken.tokenId)]);
-        
-        await (associateTx as any).freezeWithSigner(signer);
-        await (associateTx as any).executeWithSigner(signer);
-        refreshBalances();
-      }
+      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+      const signer = await browserProvider.getSigner();
+      const treasuryAddress = toEvmAddress(TREASURY_ID);
 
       toast.loading(`Depositing ${selectedToken.symbol} to Vault...`, { id: toastId });
-      let depositTx = new TransferTransaction();
+
+      let txHash: string | undefined;
 
       if (selectedToken.tokenId === "NATIVE") {
-        depositTx.addHbarTransfer(AccountId.fromString(userAddress), new Hbar(-parseFloat(stakeAmount)))
-                 .addHbarTransfer(AccountId.fromString(TREASURY_ID), new Hbar(parseFloat(stakeAmount)));
+        // Native HBAR deposit — msg.value is in weibars (1 HBAR = 1e18) on the relay.
+        const tx = await signer.sendTransaction({
+          to: treasuryAddress,
+          value: ethers.parseEther(stakeAmount),
+          gasLimit: 100000,
+        });
+        const receipt = await tx.wait();
+        txHash = receipt?.hash || tx.hash;
       } else {
-        const decimals = selectedToken.decimals || 6;
-        const amountTiny = Math.floor(parseFloat(stakeAmount) * Math.pow(10, decimals));
-        depositTx.addTokenTransfer(TokenId.fromString(selectedToken.tokenId), AccountId.fromString(userAddress), -amountTiny)
-                 .addTokenTransfer(TokenId.fromString(selectedToken.tokenId), AccountId.fromString(TREASURY_ID), amountTiny);
+        // HTS token deposit via the token's ERC20 interface at its EVM address.
+        if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
+        const amountRaw = ethers.parseUnits(stakeAmount, selectedToken.decimals);
+        const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
+        const tx = await tokenContract.transfer(treasuryAddress, amountRaw, { gasLimit: 900000 });
+        const receipt = await tx.wait();
+        txHash = receipt?.hash || tx.hash;
       }
 
-      await (depositTx as any).freezeWithSigner(signer);
-      const depositResult = await (depositTx as any).executeWithSigner(signer);
-      
-      if (!depositResult || !depositResult.transactionId) throw new Error("Deposit failed.");
+      if (!txHash) throw new Error("Deposit failed.");
 
       toast.loading("Securing stake in cloud database...", { id: toastId });
-      
+
       const saveRes = await fetch("/api/save-stake", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           userId: userAddress,
-          stakingTxId: depositResult.transactionId.toString(),
+          stakingTxId: txHash,
           amount: parseFloat(stakeAmount),
           timestamp: Date.now(),
           tokenId: selectedToken.tokenId
@@ -126,15 +125,15 @@ export default function EarnPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          walletAddress: userAddress,
+          walletAddress: evmAddress || userAddress,
           eventType: "stake",
-          refId: depositResult.transactionId.toString(),
+          refId: txHash,
         }),
       }).catch((e) => console.error("XP reward (stake) failed:", e));
 
       toast.success("Successfully Staked!", { id: toastId });
       pushAction("staked", selectedToken.symbol, stakeAmount);
-      
+
       setStakeAmount("");
       refreshBalances();
       fetchStakes();
@@ -226,8 +225,8 @@ export default function EarnPage() {
         </div>
 
         <button
-          onClick={handleStake}
-          disabled={!isConnected || isStaking || !stakeAmount || parseFloat(stakeAmount) <= 0}
+          onClick={isConnected ? handleStake : () => open()}
+          disabled={isConnected && (isStaking || !stakeAmount || parseFloat(stakeAmount) <= 0)}
           className="w-full bg-velo-green hover:bg-green-500 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-green mb-6 flex items-center justify-center gap-3"
         >
           {isStaking ? <Loader2 size={20} className="animate-spin" /> : !isConnected ? "CONNECT WALLET" : "STAKE"}

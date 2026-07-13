@@ -13,19 +13,37 @@ import {
   History,
   Search
 } from "lucide-react";
-import { useHashConnect } from "@/contexts/HashConnectContext";
 import { TOKEN_LIST, Token } from "@/config/tokens";
 import { toast } from "sonner";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
+import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { supabase } from "@/lib/supabase";
-import { TransferTransaction, Hbar, TokenId, AccountId } from "@hiero-ledger/sdk";
+import { ethers } from "ethers";
+import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
+
+// Minimal ERC20 transfer ABI — HTS tokens expose an ERC20 interface at their EVM address.
+const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount) returns (bool)"];
+
+/**
+ * Convert a Hedera account id ("0.0.x") or an EVM address to an EVM address.
+ * Hedera accounts have a deterministic "long-zero" EVM address derived from their
+ * account number, which the JSON-RPC relay routes correctly for HBAR and HTS transfers.
+ */
+function toEvmAddress(idOrAddr: string): string {
+  const s = idOrAddr.trim();
+  if (s.startsWith("0x")) return s;
+  const parts = s.split(".");
+  const num = BigInt(parts[parts.length - 1]);
+  return "0x" + num.toString(16).padStart(40, "0");
+}
 
 export default function TransferView() {
-  const hashconnectContext = useHashConnect();
-  const pairingData = hashconnectContext?.pairingData;
-  const hashconnect = hashconnectContext?.hashconnect;
-  const accountId = pairingData?.accountIds[0] || null;
+  const { address: evmAddress, isConnected } = useAppKitAccount();
+  const { open } = useAppKit();
+  const { walletProvider } = useAppKitProvider("eip155");
+  const { hederaAccountId } = useHederaAccount(evmAddress || null);
+  const accountId = hederaAccountId;
 
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
@@ -97,9 +115,10 @@ export default function TransferView() {
     ? parseFloat(hbarBalance.replace(/,/g, "")) || 0
     : parseFloat(liveBalances[selectedToken.tokenId]?.replace(/,/g, "") || "0");
   const grossAmount = parseFloat(amount || "0");
-  const protocolFee = grossAmount * 0.0025;
-  const networkFee = 0.005; // Mock HBAR fee
-  const recipientReceives = grossAmount - protocolFee;
+  // Protocol fee is disabled for wallet-native (EVM) transfers — a single EVM
+  // transaction has one recipient, so the recipient receives the full amount.
+  const networkFee = 0.005; // Estimated HBAR network fee
+  const recipientReceives = grossAmount;
 
   const handleMax = () => {
     setAmount(currentBalance.toString());
@@ -189,59 +208,48 @@ export default function TransferView() {
 
   const executeTransfer = async () => {
     if (!accountId || !resolvedAddress || isSending) return;
+    if (!walletProvider) {
+      toast.error("Wallet not connected");
+      return;
+    }
     setIsSending(true);
 
     try {
-      const treasuryId = "0.0.8642596"; // Updated to actual Treasury ID
-      let transaction = new TransferTransaction();
+      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+      const signer = await browserProvider.getSigner();
+      const toAddress = toEvmAddress(resolvedAddress);
       const isNative = selectedToken.tokenId === "NATIVE";
 
+      let txHash: string | undefined;
+
       if (isNative) {
-        // HBAR Logic
-        const grossTiny = Math.floor(grossAmount * 100_000_000);
-        const protocolTiny = Math.floor(protocolFee * 100_000_000);
-        const netTiny = grossTiny - protocolTiny;
-
-        transaction
-          .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(-grossTiny))
-          .addHbarTransfer(AccountId.fromString(resolvedAddress), Hbar.fromTinybars(netTiny))
-          .addHbarTransfer(AccountId.fromString(treasuryId), Hbar.fromTinybars(protocolTiny));
+        // Native HBAR transfer. On the Hedera JSON-RPC relay, msg.value is in
+        // weibars (1 HBAR = 1e18), so parseEther gives the correct value.
+        const tx = await signer.sendTransaction({
+          to: toAddress,
+          value: ethers.parseEther(grossAmount.toString()),
+          gasLimit: 100000,
+        });
+        const receipt = await tx.wait();
+        txHash = receipt?.hash || tx.hash;
       } else {
-        // Custom HTS Token Logic
-        const multiplier = Math.pow(10, selectedToken.decimals);
-        const grossUnits = Math.floor(grossAmount * multiplier);
-        const protocolUnits = Math.floor(protocolFee * multiplier);
-        const netUnits = grossUnits - protocolUnits;
-        const tokenId = TokenId.fromString(selectedToken.tokenId);
-
-        transaction
-          .addTokenTransfer(tokenId, AccountId.fromString(accountId), -grossUnits)
-          .addTokenTransfer(tokenId, AccountId.fromString(resolvedAddress), netUnits)
-          .addTokenTransfer(tokenId, AccountId.fromString(treasuryId), protocolUnits);
+        // HTS token transfer via the token's ERC20 interface at its EVM address.
+        if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
+        const amountRaw = ethers.parseUnits(grossAmount.toString(), selectedToken.decimals);
+        const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
+        const tx = await tokenContract.transfer(toAddress, amountRaw, { gasLimit: 900000 });
+        const receipt = await tx.wait();
+        txHash = receipt?.hash || tx.hash;
       }
 
-      // @ts-ignore - Bypass TS mismatch between @hiero-ledger/sdk versions
-      if (!hashconnect) throw new Error("Wallet service not ready");
-      const signer = hashconnect.getSigner(AccountId.fromString(accountId) as any) as any;
-      // @ts-ignore
-      const frozenTx = await transaction.freezeWithSigner(signer);
-      // @ts-ignore
-      const res = await frozenTx.executeWithSigner(signer);
-
-      if (res) {
-        toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
-        saveRecentRecipient(recipient, resolvedAddress);
-      } else {
-        toast.success(`Transfer initiated! Check your wallet.`);
-        saveRecentRecipient(recipient, resolvedAddress);
-      }
+      toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
+      saveRecentRecipient(recipient, resolvedAddress);
 
       // Award 100 Velo XP for this transaction (deduped by tx id server-side).
-      const transferTxId = (res as any)?.transactionId?.toString?.();
       fetch("/api/xp/reward", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ walletAddress: accountId, eventType: "transfer", refId: transferTxId }),
+        body: JSON.stringify({ walletAddress: evmAddress || accountId, eventType: "transfer", refId: txHash }),
       }).catch((e) => console.error("XP reward (transfer) failed:", e));
 
       setIsReviewModalOpen(false);
@@ -378,8 +386,8 @@ export default function TransferView() {
           {/* Fee Breakdown */}
           <div className="bg-black/40 rounded-2xl p-4 border border-white/5 space-y-3">
             <div className="flex justify-between items-center text-xs">
-              <span className="text-gray-500 font-medium">Protocol Fee (0.25%)</span>
-              <span className="text-white font-mono">{protocolFee.toFixed(2)} {selectedToken.symbol}</span>
+              <span className="text-gray-500 font-medium">Protocol Fee</span>
+              <span className="text-velo-green font-mono">Free</span>
             </div>
             <div className="flex justify-between items-center text-xs">
               <span className="text-gray-500 font-medium">Estimated Network Fee</span>
@@ -393,16 +401,16 @@ export default function TransferView() {
           </div>
 
           {/* Action Button */}
-          <button 
-            disabled={!isReady}
-            onClick={() => setIsReviewModalOpen(true)}
+          <button
+            disabled={isConnected && !isReady}
+            onClick={isConnected ? () => setIsReviewModalOpen(true) : () => open()}
             className={`w-full py-5 rounded-2xl font-black text-lg tracking-widest uppercase transition-all shadow-xl
-              ${isReady 
-                ? "bg-velo-cyan text-slate-950 hover:scale-[1.02] hover:shadow-velo-cyan/20 active:scale-[0.98]" 
+              ${(!isConnected || isReady)
+                ? "bg-velo-cyan text-slate-950 hover:scale-[1.02] hover:shadow-velo-cyan/20 active:scale-[0.98]"
                 : "bg-white/5 text-gray-600 cursor-not-allowed"
               }`}
           >
-            Review Transfer
+            {isConnected ? "Review Transfer" : "Connect Wallet"}
           </button>
         </div>
       </div>
@@ -441,7 +449,7 @@ export default function TransferView() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Protocol Fee</p>
-                      <p className="text-xs font-bold text-gray-300">{protocolFee.toFixed(4)} {selectedToken.symbol}</p>
+                      <p className="text-xs font-bold text-velo-green">Free</p>
                     </div>
                     <div className="space-y-1 text-right">
                       <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Net to Recipient</p>
