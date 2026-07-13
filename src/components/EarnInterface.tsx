@@ -17,6 +17,23 @@ const TREASURY_ID = "0.0.8642596";
 // Minimal ERC20 transfer ABI — HTS tokens expose an ERC20 interface at their EVM address.
 const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount) returns (bool)"];
 
+/**
+ * Wait for a tx receipt with a timeout — Hedera's JSON-RPC relay is often slow
+ * to return receipts even after the transaction has succeeded on-chain. On
+ * timeout, resolve with the submitted hash (the tx was already broadcast).
+ */
+async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise<any> }, timeoutMs = 15000): Promise<string> {
+  try {
+    const receipt = await Promise.race([
+      tx.wait(),
+      new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    return (receipt as any)?.hash || tx.hash;
+  } catch {
+    return tx.hash;
+  }
+}
+
 /** Deterministic "long-zero" EVM address for a Hedera account id ("0.0.x"). */
 function toEvmAddress(idOrAddr: string): string {
   const s = idOrAddr.trim();
@@ -90,16 +107,14 @@ export default function EarnPage() {
           value: ethers.parseEther(stakeAmount),
           gasLimit: 100000,
         });
-        const receipt = await tx.wait();
-        txHash = receipt?.hash || tx.hash;
+        txHash = await waitForReceiptWithTimeout(tx);
       } else {
         // HTS token deposit via the token's ERC20 interface at its EVM address.
         if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
         const amountRaw = ethers.parseUnits(stakeAmount, selectedToken.decimals);
         const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
         const tx = await tokenContract.transfer(treasuryAddress, amountRaw, { gasLimit: 900000 });
-        const receipt = await tx.wait();
-        txHash = receipt?.hash || tx.hash;
+        txHash = await waitForReceiptWithTimeout(tx);
       }
 
       if (!txHash) throw new Error("Deposit failed.");

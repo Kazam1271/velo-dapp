@@ -26,6 +26,25 @@ import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/re
 const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount) returns (bool)"];
 
 /**
+ * Wait for a tx receipt, but don't hang forever — Hedera's JSON-RPC relay is
+ * often slow/unreliable at returning receipts even after the transaction has
+ * already succeeded on-chain. If the receipt doesn't arrive in time, resolve
+ * with the submitted hash (the wallet already accepted and broadcast the tx).
+ */
+async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise<any> }, timeoutMs = 15000): Promise<string> {
+  try {
+    const receipt = await Promise.race([
+      tx.wait(),
+      new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    return (receipt as any)?.hash || tx.hash;
+  } catch {
+    // Receipt polling failed but the tx was already broadcast — return its hash.
+    return tx.hash;
+  }
+}
+
+/**
  * Convert a Hedera account id ("0.0.x") or an EVM address to an EVM address.
  * Hedera accounts have a deterministic "long-zero" EVM address derived from their
  * account number, which the JSON-RPC relay routes correctly for HBAR and HTS transfers.
@@ -230,16 +249,14 @@ export default function TransferView() {
           value: ethers.parseEther(grossAmount.toString()),
           gasLimit: 100000,
         });
-        const receipt = await tx.wait();
-        txHash = receipt?.hash || tx.hash;
+        txHash = await waitForReceiptWithTimeout(tx);
       } else {
         // HTS token transfer via the token's ERC20 interface at its EVM address.
         if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
         const amountRaw = ethers.parseUnits(grossAmount.toString(), selectedToken.decimals);
         const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
         const tx = await tokenContract.transfer(toAddress, amountRaw, { gasLimit: 900000 });
-        const receipt = await tx.wait();
-        txHash = receipt?.hash || tx.hash;
+        txHash = await waitForReceiptWithTimeout(tx);
       }
 
       toast.success(`Successfully sent ${recipientReceives.toFixed(2)} ${selectedToken.symbol} to ${resolvedAddress}`);
