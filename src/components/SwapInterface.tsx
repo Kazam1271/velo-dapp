@@ -256,11 +256,14 @@ export default function SwapInterface() {
       const proxyContract = new ethers.Contract(CONTRACTS.VeloMainnetProxy, CONTRACTS.ProxyABI, signer);
 
       // We hardcode gasLimit to bypass Hedera's broken eth_estimateGas (returns SENDER_NOT_FOUND).
-      // Token-in paths add HTS transferFrom/approve (+ unwrap for HBAR-out) on
-      // top of the pool swap, so they get more headroom. (Hedera charges at
-      // least 80% of the limit, so don't oversize.)
-      const GAS_LIMIT = 300000;
-      const GAS_LIMIT_TOKEN_IN = 500000;
+      // HTS precompile ops (transferFrom/approve/wrap/unwrap) are very gas-hungry:
+      // a 500k limit ran out of gas on the unwrap path (observed 499,708 used),
+      // and a HashPack-estimated token->HBAR swap used ~1.62M. Hedera charges at
+      // least 80% of the limit, so each path gets the smallest safe ceiling.
+      const GAS_LIMIT = 300000;              // HBAR in: no HTS ops in the proxy itself (proven)
+      const GAS_LIMIT_UNWRAP = 1200000;      // WHBAR->HBAR: transferFrom + approvals + WHBAR withdraw
+      const GAS_LIMIT_TOKEN_SWAP = 1500000;  // token->token: transferFrom + approvals + pool swap
+      const GAS_LIMIT_TOKEN_TO_HBAR = 1800000; // token->HBAR: heaviest — swap + unwrap
 
       if (isNativeHbarIn) {
         const tx = await sendWithWalletTimeout(proxyContract.swapExactHBARForTokens(
@@ -272,7 +275,7 @@ export default function SwapInterface() {
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
         // 1:1 unwrap through the proxy (approve already done above).
-        const tx = await sendWithWalletTimeout(proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_TOKEN_IN }));
+        const tx = await sendWithWalletTimeout(proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_UNWRAP }));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else if (recvToken.symbol === "HBAR") {
         // Token -> native HBAR: pool swap to WHBAR inside the proxy, then
@@ -282,7 +285,7 @@ export default function SwapInterface() {
           poolFee,
           amountIn,
           minAmountOut,
-          { gasLimit: GAS_LIMIT_TOKEN_IN }
+          { gasLimit: GAS_LIMIT_TOKEN_TO_HBAR }
         ));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else {
@@ -292,7 +295,7 @@ export default function SwapInterface() {
           poolFee,
           amountIn,
           minAmountOut,
-          { gasLimit: GAS_LIMIT_TOKEN_IN }
+          { gasLimit: GAS_LIMIT_TOKEN_SWAP }
         ));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       }
