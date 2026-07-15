@@ -185,13 +185,22 @@ export default function ProfileView() {
               });
 
               // HBAR itself isn't in SaucerSwap's token list — WHBAR is its
-              // 1:1 wrap, so use the WHBAR price for native HBAR.
+              // 1:1 wrap, so use the WHBAR price for native HBAR. SaucerSwap
+              // labels the wrapped token "HBAR", so also mirror the price back
+              // onto the "WHBAR" key (our mirror-node metadata uses that symbol).
               const saucerWhbar = saucerTokens.find((t: any) => t.symbol === "WHBAR" || t.symbol === "HBAR");
               if (saucerWhbar) {
+                const hbarPriceUsd = parseFloat(saucerWhbar.priceUsd) || 0;
                 tokenDataMap.set("HBAR", {
-                  price: parseFloat(saucerWhbar.priceUsd) || 0,
+                  price: hbarPriceUsd,
                   icon: "/hbar.png",
                   iconBg: "#1a1a1a"
+                });
+                const existingWhbar = tokenDataMap.get("WHBAR");
+                tokenDataMap.set("WHBAR", {
+                  price: hbarPriceUsd,
+                  icon: existingWhbar?.icon || "/hbar.png",
+                  iconBg: existingWhbar?.iconBg || "#1a1a1a"
                 });
               }
             }

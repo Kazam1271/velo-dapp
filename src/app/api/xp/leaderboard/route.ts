@@ -39,24 +39,31 @@ export async function GET(req: Request) {
     const hederaIds = await Promise.all(rows.map((u) => resolveHederaId(u.wallet_address as string)));
     const knownIds = hederaIds.filter((id): id is string => !!id);
 
-    const veloIdByWallet = new Map<string, string>();
+    const profileByWallet = new Map<string, { veloId: string | null; avatarUrl: string | null }>();
     if (knownIds.length > 0) {
       const { data: profiles } = await supabaseAdmin
         .from('profiles')
-        .select('wallet_id, velo_id')
+        .select('wallet_id, velo_id, avatar_url')
         .in('wallet_id', knownIds);
       for (const p of profiles || []) {
-        if (p.wallet_id && p.velo_id) veloIdByWallet.set(p.wallet_id as string, p.velo_id as string);
+        if (p.wallet_id) {
+          profileByWallet.set(p.wallet_id as string, {
+            veloId: (p.velo_id as string) || null,
+            avatarUrl: (p.avatar_url as string) || null,
+          });
+        }
       }
     }
 
     const leaderboard = rows.map((u, i) => {
       const hederaId = hederaIds[i];
+      const profile = hederaId ? profileByWallet.get(hederaId) : undefined;
       return {
         rank: i + 1,
         wallet: u.wallet_address as string,
         hederaId,
-        veloId: (hederaId && veloIdByWallet.get(hederaId)) || null,
+        veloId: profile?.veloId || null,
+        avatarUrl: profile?.avatarUrl || null,
         displayName: (u.display_name as string) || null,
         xp: (u.xp as number) ?? 0,
         swaps: (u.swap_count as number) ?? 0,

@@ -10,6 +10,7 @@ interface LeaderRow {
   wallet: string;
   hederaId: string | null;
   veloId: string | null;
+  avatarUrl: string | null;
   displayName: string | null;
   xp: number;
   swaps: number;
@@ -119,6 +120,17 @@ export default function LeaderboardPage() {
               >
                 <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 ${badge.cls}`}>
                   {badge.icon}
+                </div>
+                {/* Profile avatar — blank circle when the user hasn't uploaded one */}
+                <div className="w-9 h-9 rounded-full border border-white/10 bg-black/30 overflow-hidden shrink-0 flex items-center justify-center">
+                  {row.avatarUrl && (
+                    <img
+                      src={row.avatarUrl}
+                      alt=""
+                      className="w-full h-full object-cover"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-white truncate">
