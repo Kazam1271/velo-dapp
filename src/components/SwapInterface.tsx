@@ -29,6 +29,26 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
   }
 }
 
+/**
+ * Some wallets (HashPack) never resolve the eth_sendTransaction promise even
+ * though the transaction was approved and executed on-chain — which left the
+ * UI spinning forever. Give the wallet ample time (user still has to click
+ * Approve), then surface a graceful "check your wallet" outcome.
+ */
+const WALLET_TIMEOUT = Symbol("wallet-timeout");
+async function sendWithWalletTimeout<T>(p: Promise<T>, timeoutMs = 120000): Promise<T> {
+  const result = await Promise.race([
+    p,
+    new Promise<typeof WALLET_TIMEOUT>((resolve) => setTimeout(() => resolve(WALLET_TIMEOUT), timeoutMs)),
+  ]);
+  if (result === WALLET_TIMEOUT) {
+    const err: any = new Error("WALLET_TIMEOUT");
+    err.walletTimeout = true;
+    throw err;
+  }
+  return result as T;
+}
+
 async function fetchHederaBalance(evmAddress: string, tokenEvmAddress?: string): Promise<string> {
   try {
     if (!tokenEvmAddress) {
@@ -223,7 +243,7 @@ export default function SwapInterface() {
         if (!payToken.evmAddress) throw new Error(`${payToken.symbol} is missing an EVM address`);
         toast.loading("Approving Token for Swap...", { id: toastId });
         const tokenContract = new ethers.Contract(payToken.evmAddress, CONTRACTS.ERC20ABI, signer);
-        const approveTx = await tokenContract.approve(CONTRACTS.VeloMainnetProxy, amountIn);
+        const approveTx = await sendWithWalletTimeout(tokenContract.approve(CONTRACTS.VeloMainnetProxy, amountIn));
         await approveTx.wait();
         
         // Minor delay to ensure approval processes on Hedera EVM
@@ -243,37 +263,37 @@ export default function SwapInterface() {
       const GAS_LIMIT_TOKEN_IN = 500000;
 
       if (isNativeHbarIn) {
-        const tx = await proxyContract.swapExactHBARForTokens(
+        const tx = await sendWithWalletTimeout(proxyContract.swapExactHBARForTokens(
           recvToken.evmAddress,
           poolFee,
           minAmountOut,
           { value: hbarValue, gasLimit: GAS_LIMIT }
-        );
+        ));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
         // 1:1 unwrap through the proxy (approve already done above).
-        const tx = await proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_TOKEN_IN });
+        const tx = await sendWithWalletTimeout(proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_TOKEN_IN }));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else if (recvToken.symbol === "HBAR") {
         // Token -> native HBAR: pool swap to WHBAR inside the proxy, then
         // unwrap and deliver HBAR to the user (approve already done above).
-        const tx = await proxyContract.swapExactTokensForHBAR(
+        const tx = await sendWithWalletTimeout(proxyContract.swapExactTokensForHBAR(
           payToken.evmAddress,
           poolFee,
           amountIn,
           minAmountOut,
           { gasLimit: GAS_LIMIT_TOKEN_IN }
-        );
+        ));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else {
-        const tx = await proxyContract.swapExactTokensForTokens(
+        const tx = await sendWithWalletTimeout(proxyContract.swapExactTokensForTokens(
           payToken.evmAddress,
           recvToken.evmAddress,
           poolFee,
           amountIn,
           minAmountOut,
           { gasLimit: GAS_LIMIT_TOKEN_IN }
-        );
+        ));
         swapTxHash = await waitForReceiptWithTimeout(tx);
       }
 
@@ -297,6 +317,18 @@ export default function SwapInterface() {
       }).catch(e => console.error("XP engine call failed:", e));
 
     } catch (error: any) {
+      if (error?.walletTimeout) {
+        // The wallet never answered, but the tx may well have executed
+        // on-chain (HashPack does this). Refresh balances and tell the user
+        // to check rather than reporting a false failure.
+        toast.info("Wallet didn't respond", {
+          id: toastId,
+          description: "Your swap may still have completed — check your wallet balance or HashScan. Balances refreshed.",
+        });
+        setPayAmount("");
+        fetchBalances();
+        return;
+      }
       console.error("[Swap Error]:", error);
       toast.error("Swap Failed", { id: toastId, description: error.shortMessage || error.message });
     } finally {
