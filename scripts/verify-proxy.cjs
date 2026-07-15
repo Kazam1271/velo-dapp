@@ -13,7 +13,10 @@ const solc = require("solc");
 const fs = require("fs");
 const path = require("path");
 
-const ADDRESS = "0xbE276e98b98D296Da5492E21c0a6d475EE3d7731";
+// Defaults to the current proxy; pass a different address + solc release as
+// argv to verify older deployments: node scripts/verify-proxy.cjs <address> <solcVersion>
+const ADDRESS = process.argv[2] || "0x00720C916038dd4F29f09940E289ede3D2D1D8E0";
+const SOLC_RELEASE = process.argv[3] || "0.8.36";
 const CHAIN_ID = "295"; // Hedera mainnet
 const SOURCIFY = "https://sourcify.dev/server";
 
@@ -32,13 +35,17 @@ function loadSolc(versionTag) {
 }
 
 async function main() {
-  // The deployed bytecode's CBOR metadata says solc 0.8.35 — load that exact
-  // release (the locally installed solc is newer and produces different code).
-  const list = await (await fetch("https://binaries.soliditylang.org/bin/list.json")).json();
-  const tag = list.releases["0.8.35"].replace(/^soljson-/, "").replace(/\.js$/, "");
-  console.log("Loading remote compiler:", tag);
-  const solc835 = await loadSolc(tag);
-  console.log("solc version:", solc835.version());
+  // Load the exact solc release that produced the deployed bytecode (its CBOR
+  // metadata tail names the version). Uses the local solc if versions match.
+  let compiler = solc;
+  if (!solc.version().startsWith(SOLC_RELEASE + "+")) {
+    const list = await (await fetch("https://binaries.soliditylang.org/bin/list.json")).json();
+    const tag = list.releases[SOLC_RELEASE].replace(/^soljson-/, "").replace(/\.js$/, "");
+    console.log("Loading remote compiler:", tag);
+    compiler = await loadSolc(tag);
+  }
+  const longVersion = compiler.version().replace(/\.Emscripten\.clang$/, "");
+  console.log("solc version:", compiler.version());
 
   const root = path.resolve(__dirname, "..");
   const mainSource = fs.readFileSync(path.join(root, "src", "contracts", "VeloMainnetProxy.sol"), "utf8");
@@ -68,7 +75,7 @@ async function main() {
   }
 
   console.log("Compiling...");
-  const output = JSON.parse(solc835.compile(JSON.stringify(input), { import: findImports }));
+  const output = JSON.parse(compiler.compile(JSON.stringify(input), { import: findImports }));
   const errors = (output.errors || []).filter((e) => e.severity === "error");
   if (errors.length) {
     errors.forEach((e) => console.error(e.formattedMessage));
@@ -125,7 +132,7 @@ async function main() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       stdJsonInput: fullInput,
-      compilerVersion: "0.8.35+commit.47b9dedd",
+      compilerVersion: longVersion,
       contractIdentifier: "VeloMainnetProxy.sol:VeloMainnetProxy",
     }),
   });

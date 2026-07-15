@@ -192,6 +192,14 @@ export default function SwapInterface() {
       toast.error("No route available", { description: "No SaucerSwap V2 pool quote for this pair/amount." });
       return;
     }
+    // Token -> native HBAR needs a swap + unwrap in one tx, which the proxy
+    // doesn't support yet. WHBAR -> HBAR (pure unwrap) IS supported.
+    if (payToken.symbol !== "HBAR" && payToken.symbol !== "WHBAR" && recvToken.symbol === "HBAR") {
+      toast.error("Route not supported yet", {
+        description: `Swap ${payToken.symbol} to WHBAR first, then unwrap WHBAR → HBAR.`,
+      });
+      return;
+    }
     setIsSwapping(true);
     const toastId = toast.loading("Initiating Swap...");
 
@@ -245,6 +253,10 @@ export default function SwapInterface() {
           minAmountOut,
           { value: hbarValue, gasLimit: GAS_LIMIT }
         );
+        swapTxHash = await waitForReceiptWithTimeout(tx);
+      } else if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
+        // 1:1 unwrap through the proxy (approve already done above).
+        const tx = await proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT });
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else {
         const tx = await proxyContract.swapExactTokensForTokens(

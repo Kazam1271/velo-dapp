@@ -35,6 +35,15 @@ export const CONTRACTS = {
       "outputs": [{ "internalType": "uint256", "name": "amountOut", "type": "uint256" }],
       "stateMutability": "payable",
       "type": "function"
+    },
+    {
+      "inputs": [
+        { "internalType": "uint256", "name": "amountIn", "type": "uint256" }
+      ],
+      "name": "swapExactWHBARForHBAR",
+      "outputs": [{ "internalType": "uint256", "name": "amountOut", "type": "uint256" }],
+      "stateMutability": "nonpayable",
+      "type": "function"
     }
   ],
   ERC20ABI: [
