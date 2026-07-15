@@ -97,6 +97,38 @@ export default function TransferView() {
   const { balance: hbarBalance } = useHederaBalance(accountId);
   const { liveBalances } = useTokenBalances(accountId);
 
+  // Live USD prices (via our server-side proxy) for the token selector.
+  const [prices, setPrices] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/prices");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data)) return;
+        const map: Record<string, number> = {};
+        for (const t of data) {
+          const p = parseFloat(t.priceUsd ?? "0");
+          if (t.symbol && p > 0) map[t.symbol] = p;
+        }
+        // HBAR and WHBAR are a 1:1 wrap; SaucerSwap lists only one of them.
+        const hbarPrice = map["HBAR"] || map["WHBAR"] || 0;
+        if (hbarPrice > 0) { map["HBAR"] = hbarPrice; map["WHBAR"] = hbarPrice; }
+        setPrices(map);
+      } catch {
+        /* prices are cosmetic in the selector */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  /** Formatted balance for a token in the selector (matches the Amount row). */
+  const balanceFor = (token: Token): number => {
+    const raw = token.tokenId === "NATIVE" ? hbarBalance : (liveBalances[token.tokenId] || "0");
+    return parseFloat(String(raw).replace(/,/g, "")) || 0;
+  };
+
   // Smart Input Resolver
   useEffect(() => {
     const resolveInput = async () => {
@@ -402,10 +434,16 @@ export default function TransferView() {
             </div>
 
             <div className="bg-black/40 border border-white/5 rounded-3xl p-5 flex items-center justify-between group focus-within:ring-2 focus-within:ring-velo-cyan/30 transition-all">
-              <input 
+              <input
                 type="number"
+                min="0"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "-" || e.key === "e" || e.key === "E") e.preventDefault(); }}
+                onChange={(e) => {
+                  // Never allow negative values (typed or via the spinner arrows).
+                  const v = e.target.value;
+                  if (v === "" || parseFloat(v) >= 0) setAmount(v.replace(/^-/, ""));
+                }}
                 placeholder="0.00"
                 className="bg-transparent text-3xl font-black text-white focus:outline-none w-full placeholder:text-gray-800"
               />
@@ -546,27 +584,41 @@ export default function TransferView() {
               <button onClick={() => setIsTokenSelectorOpen(false)} className="text-gray-500 hover:text-white"><X size={20} /></button>
             </div>
             <div className="max-h-[400px] overflow-y-auto p-2 space-y-1">
-              {TOKEN_LIST.map((token) => (
-                <button
-                  key={token.tokenId}
-                  onClick={() => {
-                    setSelectedToken(token);
-                    setIsTokenSelectorOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${selectedToken.tokenId === token.tokenId ? "bg-velo-cyan/10 border border-velo-cyan/30" : "hover:bg-white/5 border border-transparent"}`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full overflow-hidden bg-black flex items-center justify-center">
-                      <img src={token.logoURI} alt={token.symbol} className="w-full h-full object-contain" />
+              {TOKEN_LIST.map((token) => {
+                const bal = balanceFor(token);
+                const usd = bal * (prices[token.symbol] || 0);
+                return (
+                  <button
+                    key={token.tokenId}
+                    onClick={() => {
+                      setSelectedToken(token);
+                      setIsTokenSelectorOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-4 rounded-2xl transition-all ${selectedToken.tokenId === token.tokenId ? "bg-velo-cyan/10 border border-velo-cyan/30" : "hover:bg-white/5 border border-transparent"}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full overflow-hidden bg-black flex items-center justify-center">
+                        <img src={token.logoURI} alt={token.symbol} className="w-full h-full object-contain" />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-black text-white flex items-center gap-2">
+                          {token.symbol}
+                          {selectedToken.tokenId === token.tokenId && <Check size={14} className="text-velo-cyan" />}
+                        </p>
+                        <p className="text-[10px] text-gray-500">{token.name}</p>
+                      </div>
                     </div>
-                    <div className="text-left">
-                      <p className="font-black text-white">{token.symbol}</p>
-                      <p className="text-[10px] text-gray-500">{token.name}</p>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-white">
+                        {bal.toLocaleString(undefined, { maximumFractionDigits: 4 })}
+                      </p>
+                      <p className="text-[11px] font-bold text-velo-cyan/60">
+                        {usd > 0 ? `$${usd.toFixed(2)}` : "—"}
+                      </p>
                     </div>
-                  </div>
-                  {selectedToken.tokenId === token.tokenId && <Check size={18} className="text-velo-cyan" />}
-                </button>
-              ))}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
