@@ -49,6 +49,37 @@ async function sendWithWalletTimeout<T>(p: Promise<T>, timeoutMs = 120000): Prom
   return result as T;
 }
 
+/**
+ * HashPack sometimes broadcasts a transaction successfully and then reports an
+ * error (or nothing) back to the dApp. Before declaring failure, check the
+ * mirror node for a successful proxy transaction from this user that landed
+ * after the swap started.
+ */
+async function findRecentProxySuccess(userEvm: string, sinceMs: number): Promise<string | null> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const res = await fetch(
+        `${MIRROR_BASE}/contracts/${CONTRACTS.VeloMainnetProxy}/results?from=${userEvm.toLowerCase()}&limit=3&order=desc`
+      );
+      if (res.ok) {
+        const data = await res.json();
+        for (const r of data.results || []) {
+          if (parseFloat(r.timestamp) * 1000 < sinceMs) continue;
+          const detail = await fetch(`${MIRROR_BASE}/contracts/results/${r.hash}`);
+          if (detail.ok) {
+            const dr = await detail.json();
+            if (dr.result === "SUCCESS") return r.hash;
+          }
+        }
+      }
+    } catch {
+      /* keep polling */
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return null;
+}
+
 async function fetchHederaBalance(evmAddress: string, tokenEvmAddress?: string): Promise<string> {
   try {
     if (!tokenEvmAddress) {
@@ -213,7 +244,26 @@ export default function SwapInterface() {
       return;
     }
     setIsSwapping(true);
+    const swapStartedAt = Date.now();
     const toastId = toast.loading("Initiating Swap...");
+
+    const reportSuccess = (txHash: string) => {
+      toast.success("Swap Complete! ✓", {
+        id: toastId,
+        description: `${payAmount} ${payToken.symbol} → ${receiveAmount} ${recvToken.symbol}`,
+        action: {
+          label: "View on HashScan",
+          onClick: () => window.open(`https://hashscan.io/mainnet/transaction/${txHash}`, "_blank"),
+        },
+      });
+      setPayAmount("");
+      fetchBalances();
+      fetch("/api/xp/swap-reward", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ walletAddress: address, txHash })
+      }).catch(e => console.error("XP engine call failed:", e));
+    };
 
     try {
       const isNativeHbarIn = payToken.symbol === "HBAR";
@@ -322,40 +372,38 @@ export default function SwapInterface() {
         swapTxHash = await waitForReceiptWithTimeout(tx);
       }
 
-      toast.success("Swap Complete! ✓", {
-        id: toastId,
-        description: `${payAmount} ${payToken.symbol} → ${receiveAmount} ${recvToken.symbol}`,
-        action: {
-          label: "View on HashScan",
-          onClick: () => window.open(`https://hashscan.io/mainnet/transaction/${swapTxHash}`, "_blank"),
-        },
-      });
-
-      setPayAmount("");
-      fetchBalances();
-
-      // Trigger XP Engine verification silently
-      fetch("/api/xp/swap-reward", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ walletAddress: address, txHash: swapTxHash })
-      }).catch(e => console.error("XP engine call failed:", e));
+      reportSuccess(swapTxHash);
 
     } catch (error: any) {
-      if (error?.walletTimeout) {
-        // The wallet never answered, but the tx may well have executed
-        // on-chain (HashPack does this). Refresh balances and tell the user
-        // to check rather than reporting a false failure.
-        toast.info("Wallet didn't respond", {
-          id: toastId,
-          description: "Your swap may still have completed — check your wallet balance or HashScan. Balances refreshed.",
-        });
-        setPayAmount("");
-        fetchBalances();
-        return;
-      }
       console.error("[Swap Error]:", error);
-      toast.error("Swap Failed", { id: toastId, description: error.shortMessage || error.message });
+      const msg = error?.shortMessage || error?.message || "";
+      const userRejected =
+        error?.code === "ACTION_REJECTED" || error?.code === 4001 || /rejected|denied/i.test(msg);
+
+      // HashPack sometimes broadcasts the tx successfully and then reports an
+      // error (or goes silent) — verify against the chain before declaring
+      // failure, unless the user explicitly rejected in the wallet.
+      if (!userRejected) {
+        toast.loading("Wallet reported an issue — verifying on-chain...", { id: toastId });
+        const confirmedHash = address ? await findRecentProxySuccess(address, swapStartedAt) : null;
+        if (confirmedHash) {
+          reportSuccess(confirmedHash);
+          return;
+        }
+        if (error?.walletTimeout) {
+          toast.info("Wallet didn't respond", {
+            id: toastId,
+            description: "Your swap may still have completed — check your wallet balance or HashScan. Balances refreshed.",
+          });
+          setPayAmount("");
+          fetchBalances();
+          return;
+        }
+      }
+      toast.error(userRejected ? "Transaction rejected" : "Swap Failed", {
+        id: toastId,
+        description: userRejected ? "You declined the transaction in your wallet." : msg,
+      });
     } finally {
       setIsSwapping(false);
     }
