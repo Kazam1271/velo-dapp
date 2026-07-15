@@ -244,10 +244,32 @@ export default function SwapInterface() {
         toast.loading("Approving Token for Swap...", { id: toastId });
         const tokenContract = new ethers.Contract(payToken.evmAddress, CONTRACTS.ERC20ABI, signer);
         const approveTx = await sendWithWalletTimeout(tokenContract.approve(CONTRACTS.VeloMainnetProxy, amountIn));
-        await approveTx.wait();
-        
-        // Minor delay to ensure approval processes on Hedera EVM
-        await new Promise(res => setTimeout(res, 2500));
+        await waitForReceiptWithTimeout(approveTx);
+
+        // Wait until the allowance is actually visible on-chain before sending
+        // the swap. Some wallets (HashPack) simulate the next tx immediately
+        // and reject it if the fresh approval hasn't propagated yet.
+        toast.loading("Confirming approval on-chain...", { id: toastId });
+        const allowanceCall =
+          "0xdd62ed3e" +
+          address.toLowerCase().replace("0x", "").padStart(64, "0") +
+          CONTRACTS.VeloMainnetProxy.toLowerCase().replace("0x", "").padStart(64, "0");
+        for (let i = 0; i < 12; i++) {
+          try {
+            const res = await fetch(`${MIRROR_BASE}/contracts/call`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ to: payToken.evmAddress, data: allowanceCall }),
+            });
+            if (res.ok) {
+              const out = await res.json();
+              if (out.result && BigInt(out.result) >= amountIn) break;
+            }
+          } catch {
+            /* keep polling */
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+        }
       }
 
       toast.loading("Executing Swap via Velo Proxy...", { id: toastId });

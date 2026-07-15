@@ -144,8 +144,14 @@ export default function TransferView() {
       setResolveError(null);
       setResolvedAddress(null);
 
-      // Check 1: Direct Address
+      // Check 1: Direct Hedera address
       if (/^0\.0\.\d+$/.test(input)) {
+        setResolvedAddress(input);
+        setIsResolving(false);
+        return;
+      }
+      // Check 1b: Raw EVM address (MetaMask etc.)
+      if (/^0x[0-9a-fA-F]{40}$/.test(input)) {
         setResolvedAddress(input);
         setIsResolving(false);
         return;
