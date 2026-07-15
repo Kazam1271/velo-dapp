@@ -1,17 +1,48 @@
 import { Client, PrivateKey, AccountId, Hbar, TransferTransaction, TokenId } from "@hiero-ledger/sdk";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { ethers } from "ethers";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+/** The exact message the Earn UI asks the wallet to sign for an unstake
+ *  (keep in sync with EarnInterface.buildUnstakeMessage). */
+function buildUnstakeMessage(stakeId: number | string, amount: string, timestamp: number): string {
+  return `Velo Unstake\nStake: ${stakeId}\nAmount: ${amount} HBAR\nTimestamp: ${timestamp}`;
+}
+
 export async function POST(req: Request) {
   try {
-    const { stakeId, accountId } = await req.json();
+    const { stakeId, accountId, amount, signature, timestamp } = await req.json();
 
-    if (!stakeId || !accountId) {
+    if (!stakeId || !accountId || !amount || !signature || !timestamp) {
       return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    }
+
+    // 0a. Reject stale signatures (10 minute window).
+    if (Math.abs(Date.now() - Number(timestamp)) > 10 * 60 * 1000) {
+      return NextResponse.json({ success: false, error: "Signature expired — please try again." }, { status: 400 });
+    }
+
+    // 0b. Verify the gasless wallet signature: only the stake owner's wallet
+    // can authorize an unstake.
+    const message = buildUnstakeMessage(stakeId, String(amount), Number(timestamp));
+    let signerAddress: string;
+    try {
+      signerAddress = ethers.verifyMessage(message, signature).toLowerCase();
+    } catch {
+      return NextResponse.json({ success: false, error: "Invalid signature." }, { status: 401 });
+    }
+
+    // Resolve the stake owner's EVM address (alias) from the mirror node.
+    const accRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${accountId}`);
+    if (!accRes.ok) throw new Error("Could not resolve account.");
+    const accData = await accRes.json();
+    const ownerEvm = String(accData.evm_address || "").toLowerCase();
+    if (!ownerEvm || ownerEvm !== signerAddress) {
+      return NextResponse.json({ success: false, error: "Signature does not match the stake owner." }, { status: 401 });
     }
 
     // 1. Fetch the stake record securely from DB
@@ -25,6 +56,12 @@ export async function POST(req: Request) {
 
     if (fetchError || !stakeRecord) {
       throw new Error("Active stake not found or does not belong to you.");
+    }
+
+    // Partial unstake: the requested amount must fit within the stake.
+    const requested = parseFloat(String(amount));
+    if (!(requested > 0) || requested > Number(stakeRecord.amount) + 1e-9) {
+      return NextResponse.json({ success: false, error: "Invalid unstake amount." }, { status: 400 });
     }
 
     // 2. Verify Original Staking Transaction via the MAINNET Mirror Node.
@@ -51,9 +88,10 @@ export async function POST(req: Request) {
     }
 
     // 3. Staking rewards are paid in Velo XP only (daily accrual via
-    // api/xp/stake-accrual) — unstaking returns exactly the principal.
+    // api/xp/stake-accrual) — unstaking returns exactly the requested
+    // principal (partial unstakes leave the remainder actively staked).
     const reward = 0;
-    const totalPayout = stakeRecord.amount;
+    const totalPayout = requested;
 
     // 4. EXECUTE PAYOUT (mainnet)
     const treasuryId = process.env.TREASURY_ID || "0.0.10609462";
@@ -86,20 +124,24 @@ export async function POST(req: Request) {
       throw new Error(`Payout failed with status: ${receipt.status}`);
     }
 
-    // 5. Update DB Status to CLAIMED
+    // 5. Update the stake: full unstake -> CLAIMED; partial -> reduce the
+    // active amount (daily XP accrual follows the reduced amount).
+    const remaining = Number(stakeRecord.amount) - requested;
     const { error: updateError } = await supabase
       .from("stakes")
-      .update({ status: "CLAIMED" })
+      .update(remaining > 1e-8 ? { amount: remaining } : { status: "CLAIMED" })
       .eq("id", stakeId);
 
     if (updateError) {
-      console.error("Failed to update stake status to CLAIMED", updateError);
+      console.error("Failed to update stake after unstake", updateError);
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    return NextResponse.json({
+      success: true,
       payoutTxId: executed.transactionId.toString(),
-      rewardEarned: reward
+      rewardEarned: reward,
+      unstaked: requested,
+      remaining: Math.max(remaining, 0)
     });
 
   } catch (error: any) {

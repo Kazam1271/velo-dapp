@@ -79,6 +79,10 @@ export default function EarnPage() {
   const [stakeAmount, setStakeAmount] = useState("");
   const [activeStakes, setActiveStakes] = useState<any[]>([]);
   const [isFetchingStakes, setIsFetchingStakes] = useState(false);
+  // Unstake modal state
+  const [unstakeStake, setUnstakeStake] = useState<any | null>(null);
+  const [unstakeAmount, setUnstakeAmount] = useState("");
+  const [isUnstaking, setIsUnstaking] = useState(false);
 
   useEffect(() => {
     if (isConnected && userAddress) {
@@ -171,25 +175,60 @@ export default function EarnPage() {
     }
   };
 
-  const handleClaim = async (stakeId: number) => {
-    if (!isConnected || !userAddress) return;
-    const toastId = toast.loading("Unstaking...");
+  /** Must match the server's buildUnstakeMessage in api/claim-rewards. */
+  const buildUnstakeMessage = (stakeId: number | string, amount: string, timestamp: number) =>
+    `Velo Unstake\nStake: ${stakeId}\nAmount: ${amount} HBAR\nTimestamp: ${timestamp}`;
+
+  const handleUnstake = async () => {
+    if (!isConnected || !userAddress || !walletProvider || !unstakeStake) return;
+    const requested = parseFloat(unstakeAmount);
+    if (!(requested > 0) || requested > Number(unstakeStake.amount) + 1e-9) {
+      toast.error("Enter a valid amount within your stake.");
+      return;
+    }
+
+    setIsUnstaking(true);
+    const toastId = toast.loading("Sign the unstake request in your wallet...");
 
     try {
+      // Gasless authorization: the wallet signs a message proving ownership;
+      // the server verifies it before paying out from the treasury.
+      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+      const signer = await browserProvider.getSigner();
+      const timestamp = Date.now();
+      const amountStr = requested.toString();
+      const signature = await signer.signMessage(buildUnstakeMessage(unstakeStake.id, amountStr, timestamp));
+
+      toast.loading("Unstaking...", { id: toastId });
+
       const res = await fetch("/api/claim-rewards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ stakeId, accountId: userAddress })
+        body: JSON.stringify({
+          stakeId: unstakeStake.id,
+          accountId: userAddress,
+          amount: amountStr,
+          signature,
+          timestamp,
+        })
       });
 
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
 
-      toast.success("Unstaked! Your HBAR is back in your wallet.", { id: toastId });
+      toast.success(`Unstaked ${requested} HBAR — back in your wallet.`, {
+        id: toastId,
+        description: data.remaining > 0 ? `${data.remaining.toFixed(2)} HBAR still staked and earning XP.` : undefined,
+      });
+      setUnstakeStake(null);
+      setUnstakeAmount("");
       refreshBalance();
       fetchStakes();
     } catch (err: any) {
-      toast.error("Claim Failed", { id: toastId, description: err.message });
+      const rejected = err?.code === "ACTION_REJECTED" || /rejected|denied/i.test(err?.message || "");
+      toast.error(rejected ? "Signature declined" : "Unstake Failed", { id: toastId, description: rejected ? undefined : err.message });
+    } finally {
+      setIsUnstaking(false);
     }
   };
 
@@ -299,7 +338,7 @@ export default function EarnPage() {
                       <div className="text-[10px] text-gray-500">Staked {days} days ago{xpPerDay > 0 ? ` · +${xpPerDay} XP/day` : ""}</div>
                     </div>
                     <button
-                      onClick={() => handleClaim(stake.id)}
+                      onClick={() => { setUnstakeStake(stake); setUnstakeAmount(String(stake.amount)); }}
                       className="bg-velo-cyan/10 hover:bg-velo-cyan/20 text-velo-cyan text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
                     >
                       UNSTAKE
@@ -311,6 +350,57 @@ export default function EarnPage() {
           )}
         </div>
       </div>
+
+      {/* Unstake Modal */}
+      {unstakeStake && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => !isUnstaking && setUnstakeStake(null)} />
+          <div className="bg-[#0c1019] border border-white/10 rounded-[32px] w-full max-w-sm p-6 relative shadow-2xl">
+            <h3 className="text-lg font-black text-white mb-1">Unstake HBAR</h3>
+            <p className="text-xs text-gray-500 mb-4">
+              Staked: <span className="text-velo-cyan font-bold">{unstakeStake.amount} HBAR</span> — choose how much to withdraw.
+            </p>
+
+            <div className="bg-black/40 border border-white/5 rounded-2xl p-4 mb-2 flex items-center justify-between gap-3">
+              <input
+                type="number"
+                min="0"
+                value={unstakeAmount}
+                onKeyDown={(e) => { if (e.key === "-" || e.key === "e" || e.key === "E") e.preventDefault(); }}
+                onChange={(e) => { const v = e.target.value; if (v === "" || parseFloat(v) >= 0) setUnstakeAmount(v.replace(/^-/, "")); }}
+                placeholder="0.00"
+                className="bg-transparent text-2xl font-black text-white focus:outline-none w-full"
+              />
+              <button
+                onClick={() => setUnstakeAmount(String(unstakeStake.amount))}
+                className="text-[10px] font-black text-velo-cyan bg-velo-cyan/10 px-2 py-1 rounded-md hover:bg-velo-cyan/20 uppercase"
+              >
+                MAX
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-500 mb-4">
+              You&apos;ll sign a free message in your wallet to authorize this — no gas needed.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setUnstakeStake(null)}
+                disabled={isUnstaking}
+                className="py-3 rounded-xl font-black text-gray-500 hover:text-white bg-white/5 hover:bg-white/10 transition-all border border-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUnstake}
+                disabled={isUnstaking || !(parseFloat(unstakeAmount) > 0) || parseFloat(unstakeAmount) > Number(unstakeStake.amount) + 1e-9}
+                className="py-3 rounded-xl font-black text-slate-950 bg-velo-cyan hover:bg-cyan-300 disabled:opacity-40 transition-all flex items-center justify-center gap-2"
+              >
+                {isUnstaking ? <Loader2 size={16} className="animate-spin" /> : "Sign & Unstake"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
