@@ -150,13 +150,16 @@ export default function ProfileView() {
         tokenMetadataCache.set('HBAR', { symbol: 'HBAR', decimals: 8 });
 
         try {
-          const saucerResponse = await fetch('https://api.saucerswap.finance/tokens');
+          // Use our server-side price proxy — SaucerSwap's public /tokens
+          // endpoint now requires an API key, so direct browser fetches fail
+          // (which left every price at $0 and HBAR at a stale hardcoded 0.08).
+          const saucerResponse = await fetch('/api/prices');
           const { TOKEN_LIST } = await import("@/config/tokens");
-          
+
           // Pre-populate with local tokens first
           TOKEN_LIST.forEach(lt => {
             tokenDataMap.set(lt.symbol, {
-              price: lt.symbol === 'HBAR' ? 0.08 : 0, // Better default for HBAR
+              price: 0,
               icon: lt.logoURI,
               iconBg: lt.iconBg
             });
@@ -164,29 +167,37 @@ export default function ProfileView() {
 
           if (saucerResponse.ok) {
             const saucerTokens = await saucerResponse.json();
-            saucerTokens.forEach((t: any) => {
-              if (t.symbol) {
-                const existing = tokenDataMap.get(t.symbol);
-                tokenDataMap.set(t.symbol, {
-                  price: t.priceUsd || 0,
-                  icon: existing?.icon || (t.icon ? `https://www.saucerswap.finance${t.icon}` : null),
-                  iconBg: existing?.iconBg || null
+            if (Array.isArray(saucerTokens)) {
+              saucerTokens.forEach((t: any) => {
+                if (t.symbol) {
+                  const existing = tokenDataMap.get(t.symbol);
+                  // Icons in the API are absolute CDN URLs now; only prefix
+                  // legacy relative paths.
+                  const iconUrl = t.icon
+                    ? (String(t.icon).startsWith('http') ? t.icon : `https://www.saucerswap.finance${t.icon}`)
+                    : null;
+                  tokenDataMap.set(t.symbol, {
+                    price: parseFloat(t.priceUsd) || 0,
+                    icon: existing?.icon || iconUrl,
+                    iconBg: existing?.iconBg || null
+                  });
+                }
+              });
+
+              // HBAR itself isn't in SaucerSwap's token list — WHBAR is its
+              // 1:1 wrap, so use the WHBAR price for native HBAR.
+              const saucerWhbar = saucerTokens.find((t: any) => t.symbol === "WHBAR" || t.symbol === "HBAR");
+              if (saucerWhbar) {
+                tokenDataMap.set("HBAR", {
+                  price: parseFloat(saucerWhbar.priceUsd) || 0,
+                  icon: "/hbar.png",
+                  iconBg: "#1a1a1a"
                 });
               }
-            });
-
-            // Special Case: Ensure HBAR price is explicitly set from SaucerSwap
-            const saucerHbar = saucerTokens.find((t: any) => t.symbol === "HBAR");
-            if (saucerHbar) {
-              tokenDataMap.set("HBAR", {
-                price: saucerHbar.priceUsd || 0,
-                icon: "/hbar.png",
-                iconBg: "#1a1a1a"
-              });
             }
           }
         } catch (dataError) {
-          console.error("SaucerSwap data fetch failed, defaulting to $0:", dataError);
+          console.error("Price data fetch failed, defaulting to $0:", dataError);
         }
 
         // 2. Fetch Balances
