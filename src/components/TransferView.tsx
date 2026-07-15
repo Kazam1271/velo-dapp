@@ -44,17 +44,35 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
   }
 }
 
-/**
- * Convert a Hedera account id ("0.0.x") or an EVM address to an EVM address.
- * Hedera accounts have a deterministic "long-zero" EVM address derived from their
- * account number, which the JSON-RPC relay routes correctly for HBAR and HTS transfers.
- */
+/** Deterministic "long-zero" EVM address for a Hedera account id ("0.0.x"). */
 function toEvmAddress(idOrAddr: string): string {
   const s = idOrAddr.trim();
   if (s.startsWith("0x")) return s;
   const parts = s.split(".");
   const num = BigInt(parts[parts.length - 1]);
   return "0x" + num.toString(16).padStart(40, "0");
+}
+
+/**
+ * Resolve a recipient ("0.0.x" or 0x…) to the EVM address the JSON-RPC relay
+ * will accept. Accounts created from a MetaMask/ECDSA alias are addressed by
+ * their ALIAS (mirror node `evm_address`), and the relay REJECTS transfers to
+ * their long-zero form — so ask the mirror node first and only fall back to
+ * long-zero for accounts without an alias (e.g. ED25519 accounts).
+ */
+async function resolveRecipientEvmAddress(idOrAddr: string): Promise<string> {
+  const s = idOrAddr.trim();
+  if (s.startsWith("0x")) return s;
+  try {
+    const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${s}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.evm_address) return data.evm_address;
+    }
+  } catch {
+    /* fall through to long-zero */
+  }
+  return toEvmAddress(s);
 }
 
 export default function TransferView() {
@@ -236,7 +254,7 @@ export default function TransferView() {
     try {
       const browserProvider = new ethers.BrowserProvider(walletProvider as any);
       const signer = await browserProvider.getSigner();
-      const toAddress = toEvmAddress(resolvedAddress);
+      const toAddress = await resolveRecipientEvmAddress(resolvedAddress);
       const isNative = selectedToken.tokenId === "NATIVE";
 
       let txHash: string | undefined;

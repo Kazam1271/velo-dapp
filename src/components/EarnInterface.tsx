@@ -43,6 +43,26 @@ function toEvmAddress(idOrAddr: string): string {
   return "0x" + num.toString(16).padStart(40, "0");
 }
 
+/**
+ * Resolve an account to the EVM address the relay accepts: alias accounts
+ * (MetaMask/ECDSA) must be addressed by their mirror-node `evm_address`;
+ * long-zero only works for accounts without an alias.
+ */
+async function resolveEvmAddress(idOrAddr: string): Promise<string> {
+  const s = idOrAddr.trim();
+  if (s.startsWith("0x")) return s;
+  try {
+    const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${s}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.evm_address) return data.evm_address;
+    }
+  } catch {
+    /* fall through to long-zero */
+  }
+  return toEvmAddress(s);
+}
+
 export default function EarnPage() {
   const { address: evmAddress, isConnected } = useAppKitAccount();
   const { open } = useAppKit();
@@ -94,7 +114,7 @@ export default function EarnPage() {
     try {
       const browserProvider = new ethers.BrowserProvider(walletProvider as any);
       const signer = await browserProvider.getSigner();
-      const treasuryAddress = toEvmAddress(TREASURY_ID);
+      const treasuryAddress = await resolveEvmAddress(TREASURY_ID);
 
       toast.loading(`Depositing ${selectedToken.symbol} to Vault...`, { id: toastId });
 
