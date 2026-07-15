@@ -50,17 +50,10 @@ export async function POST(req: Request) {
       throw new Error("Could not verify original staking transaction on ledger.");
     }
 
-    // 3. Calculate Reward (5% APY, prorated by actual time staked).
-    // NOTE: no minimum reward — a flat minimum let users stake tiny amounts
-    // and claim instantly for free money, draining the treasury.
-    const now = Date.now();
-    const stakedTime = stakeRecord.timestamp; // in ms
-    const daysElapsed = (now - stakedTime) / (1000 * 60 * 60 * 24);
-
-    const apy = 0.05;
-    const reward = Math.max(stakeRecord.amount * (apy / 365) * daysElapsed, 0);
-
-    const totalPayout = stakeRecord.amount + reward;
+    // 3. Staking rewards are paid in Velo XP only (daily accrual via
+    // api/xp/stake-accrual) — unstaking returns exactly the principal.
+    const reward = 0;
+    const totalPayout = stakeRecord.amount;
 
     // 4. EXECUTE PAYOUT (mainnet)
     const treasuryId = process.env.TREASURY_ID || "0.0.10609462";

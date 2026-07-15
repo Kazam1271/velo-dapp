@@ -15,9 +15,9 @@ import { useHCSData } from "@/contexts/HCSDataProvider";
 // mainnet belongs to a stranger — stakes would have been lost.)
 const TREASURY_ID = "0.0.10609462";
 
-// Displayed staking economics — keep in sync with api/claim-rewards (APY)
-// and api/xp/stake-accrual (XP rate).
-const STAKE_APY_PCT = 5;
+// Staking pays Velo XP ONLY — unstaking returns exactly the principal
+// (api/claim-rewards pays no HBAR interest). Keep the rate in sync with
+// api/xp/stake-accrual.
 const XP_PER_10_HBAR_PER_DAY = 1;
 
 /**
@@ -173,7 +173,7 @@ export default function EarnPage() {
 
   const handleClaim = async (stakeId: number) => {
     if (!isConnected || !userAddress) return;
-    const toastId = toast.loading("Claiming Rewards & Unstaking...");
+    const toastId = toast.loading("Unstaking...");
 
     try {
       const res = await fetch("/api/claim-rewards", {
@@ -185,7 +185,7 @@ export default function EarnPage() {
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
 
-      toast.success(`Claimed successfully! Earned ${data.rewardEarned.toFixed(4)} HBAR.`, { id: toastId });
+      toast.success("Unstaked! Your HBAR is back in your wallet.", { id: toastId });
       refreshBalance();
       fetchStakes();
     } catch (err: any) {
@@ -203,20 +203,20 @@ export default function EarnPage() {
       {/* Header */}
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-2">
         <h1 className="text-3xl font-bold text-white mb-2">HBAR Staking Vault</h1>
-        <p className="text-gray-400 text-sm">Lock your HBAR in the Treasury to earn rewards and daily Velo XP.</p>
+        <p className="text-gray-400 text-sm">Lock your HBAR to earn daily Velo XP. Unstake anytime — your HBAR comes straight back.</p>
       </motion.div>
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-3 mb-2">
         <div className="bg-velo-card border border-velo-border rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-16 h-16 bg-velo-green/10 rounded-full blur-xl -mr-8 -mt-8"></div>
-          <span className="text-xs text-gray-400 font-bold tracking-wider mb-1">APY</span>
-          <span className="text-2xl font-bold text-velo-green">{STAKE_APY_PCT}%</span>
-        </div>
-        <div className="bg-velo-card border border-velo-border rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden">
           <div className="absolute top-0 right-0 w-16 h-16 bg-velo-cyan/10 rounded-full blur-xl -mr-8 -mt-8"></div>
           <span className="text-xs text-gray-400 font-bold tracking-wider mb-1">DAILY XP</span>
           <span className="text-2xl font-bold text-velo-cyan">{XP_PER_10_HBAR_PER_DAY} <span className="text-xs text-gray-400">/ 10 HBAR</span></span>
+        </div>
+        <div className="bg-velo-card border border-velo-border rounded-2xl p-4 flex flex-col items-center justify-center relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-16 h-16 bg-velo-green/10 rounded-full blur-xl -mr-8 -mt-8"></div>
+          <span className="text-xs text-gray-400 font-bold tracking-wider mb-1">REWARDS PAID IN</span>
+          <span className="text-2xl font-bold text-velo-green">Velo XP</span>
         </div>
       </div>
 
@@ -302,7 +302,7 @@ export default function EarnPage() {
                       onClick={() => handleClaim(stake.id)}
                       className="bg-velo-cyan/10 hover:bg-velo-cyan/20 text-velo-cyan text-xs font-bold py-1.5 px-3 rounded-lg transition-colors"
                     >
-                      CLAIM
+                      UNSTAKE
                     </button>
                   </div>
                 );
