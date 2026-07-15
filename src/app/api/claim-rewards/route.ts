@@ -27,39 +27,47 @@ export async function POST(req: Request) {
       throw new Error("Active stake not found or does not belong to you.");
     }
 
-    // 2. Verify Original Staking Transaction via Mirror Node
-    const [accId, timestamp] = stakeRecord.staking_tx_id.split("@");
-    const normalizedTxId = `${accId}-${timestamp.replace(".", "-")}`;
-    const mirrorUrl = `https://testnet.mirrornode.hedera.com/api/v1/transactions/${normalizedTxId}`;
-    
-    const txRes = await fetch(mirrorUrl);
-    if (!txRes.ok) {
+    // 2. Verify Original Staking Transaction via the MAINNET Mirror Node.
+    // Stakes are EVM transfers now, so staking_tx_id is an eth tx hash (0x…);
+    // legacy records may still use the Hedera "0.0.x@ts" format.
+    let verified = false;
+    if (String(stakeRecord.staking_tx_id).startsWith("0x")) {
+      const txRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/contracts/results/${stakeRecord.staking_tx_id}`);
+      if (txRes.ok) {
+        const tr = await txRes.json();
+        verified = tr.result === "SUCCESS";
+      }
+    } else {
+      const [accId, timestamp] = stakeRecord.staking_tx_id.split("@");
+      const normalizedTxId = `${accId}-${timestamp.replace(".", "-")}`;
+      const txRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/transactions/${normalizedTxId}`);
+      if (txRes.ok) {
+        const txData = await txRes.json();
+        verified = txData.transactions?.[0]?.result === "SUCCESS";
+      }
+    }
+    if (!verified) {
       throw new Error("Could not verify original staking transaction on ledger.");
     }
-    
-    const txData = await txRes.json();
-    const transaction = txData.transactions[0];
-    if (!transaction || transaction.result !== "SUCCESS") {
-      throw new Error("Original staking transaction was not successful.");
-    }
 
-    // 3. Calculate Reward (12.5% APY)
+    // 3. Calculate Reward (5% APY, prorated by actual time staked).
+    // NOTE: no minimum reward — a flat minimum let users stake tiny amounts
+    // and claim instantly for free money, draining the treasury.
     const now = Date.now();
     const stakedTime = stakeRecord.timestamp; // in ms
     const daysElapsed = (now - stakedTime) / (1000 * 60 * 60 * 24);
-    
-    const apy = 0.125;
-    let reward = stakeRecord.amount * (apy / 365) * daysElapsed;
-    
-    // Minimum reward of 0.1 so users see a gain immediately
-    if (reward < 0.1) reward = 0.1;
-    
+
+    const apy = 0.05;
+    const reward = Math.max(stakeRecord.amount * (apy / 365) * daysElapsed, 0);
+
     const totalPayout = stakeRecord.amount + reward;
 
-    // 4. EXECUTE PAYOUT
-    const treasuryId = process.env.TREASURY_ID!;
-    const client = Client.forTestnet();
-    const treasuryKey = PrivateKey.fromStringECDSA(process.env.TREASURY_KEY!);
+    // 4. EXECUTE PAYOUT (mainnet)
+    const treasuryId = process.env.TREASURY_ID || "0.0.10609462";
+    const client = Client.forMainnet();
+    const treasuryKey = PrivateKey.fromStringECDSA(
+      (process.env.TREASURY_KEY || process.env.MAINNET_TREASURY_KEY!).replace(/^0x/, "")
+    );
     const operatorId = AccountId.fromString(treasuryId);
     client.setOperator(operatorId, treasuryKey);
 
@@ -70,7 +78,7 @@ export async function POST(req: Request) {
       payoutTx.addHbarTransfer(operatorId, Hbar.fromTinybars(-payoutTiny))
               .addHbarTransfer(AccountId.fromString(accountId), Hbar.fromTinybars(payoutTiny));
     } else {
-      const tokenInfoRes = await fetch(`https://testnet.mirrornode.hedera.com/api/v1/tokens/${stakeRecord.token_id}`);
+      const tokenInfoRes = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/tokens/${stakeRecord.token_id}`);
       const tokenInfo = await tokenInfoRes.json();
       const outTiny = Math.floor(totalPayout * Math.pow(10, tokenInfo.decimals || 0));
 
