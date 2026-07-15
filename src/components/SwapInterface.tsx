@@ -192,14 +192,6 @@ export default function SwapInterface() {
       toast.error("No route available", { description: "No SaucerSwap V2 pool quote for this pair/amount." });
       return;
     }
-    // Token -> native HBAR needs a swap + unwrap in one tx, which the proxy
-    // doesn't support yet. WHBAR -> HBAR (pure unwrap) IS supported.
-    if (payToken.symbol !== "HBAR" && payToken.symbol !== "WHBAR" && recvToken.symbol === "HBAR") {
-      toast.error("Route not supported yet", {
-        description: `Swap ${payToken.symbol} to WHBAR first, then unwrap WHBAR → HBAR.`,
-      });
-      return;
-    }
     setIsSwapping(true);
     const toastId = toast.loading("Initiating Swap...");
 
@@ -243,8 +235,12 @@ export default function SwapInterface() {
       let swapTxHash;
       const proxyContract = new ethers.Contract(CONTRACTS.VeloMainnetProxy, CONTRACTS.ProxyABI, signer);
 
-      // We hardcode gasLimit to bypass Hedera's broken eth_estimateGas (returns SENDER_NOT_FOUND)
+      // We hardcode gasLimit to bypass Hedera's broken eth_estimateGas (returns SENDER_NOT_FOUND).
+      // Token-in paths add HTS transferFrom/approve (+ unwrap for HBAR-out) on
+      // top of the pool swap, so they get more headroom. (Hedera charges at
+      // least 80% of the limit, so don't oversize.)
       const GAS_LIMIT = 300000;
+      const GAS_LIMIT_TOKEN_IN = 500000;
 
       if (isNativeHbarIn) {
         const tx = await proxyContract.swapExactHBARForTokens(
@@ -256,7 +252,18 @@ export default function SwapInterface() {
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
         // 1:1 unwrap through the proxy (approve already done above).
-        const tx = await proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT });
+        const tx = await proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_TOKEN_IN });
+        swapTxHash = await waitForReceiptWithTimeout(tx);
+      } else if (recvToken.symbol === "HBAR") {
+        // Token -> native HBAR: pool swap to WHBAR inside the proxy, then
+        // unwrap and deliver HBAR to the user (approve already done above).
+        const tx = await proxyContract.swapExactTokensForHBAR(
+          payToken.evmAddress,
+          poolFee,
+          amountIn,
+          minAmountOut,
+          { gasLimit: GAS_LIMIT_TOKEN_IN }
+        );
         swapTxHash = await waitForReceiptWithTimeout(tx);
       } else {
         const tx = await proxyContract.swapExactTokensForTokens(
@@ -265,7 +272,7 @@ export default function SwapInterface() {
           poolFee,
           amountIn,
           minAmountOut,
-          { gasLimit: GAS_LIMIT }
+          { gasLimit: GAS_LIMIT_TOKEN_IN }
         );
         swapTxHash = await waitForReceiptWithTimeout(tx);
       }

@@ -11,7 +11,7 @@ const fs = require("fs");
 const path = require("path");
 
 const RPC_URL = "https://mainnet.hashio.io/api";
-const PROXY = "0x00720C916038dd4F29f09940E289ede3D2D1D8E0"; // v2 proxy (deployed 2026-07-15)
+const PROXY = "0x00aE201cD833eD38639DCd9eF9b21ebd47f898Da"; // v3 proxy (deployed 2026-07-15, token->HBAR support)
 const ABI = [
   "function feeBasisPoints() view returns (uint256)",
   "function owner() view returns (address)",

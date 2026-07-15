@@ -24,11 +24,13 @@ interface ISaucerSwapV2Router {
 }
 
 /// WHBAR helper contract (0.0.1456985) — NOT the HTS token (0.0.1456986).
-/// deposit() wraps msg.value and credits WHBAR tokens to msg.sender;
-/// withdraw() burns caller WHBAR and sends back HBAR.
+/// deposit() wraps msg.value and credits WHBAR tokens to msg.sender.
+/// withdraw(src, dst, wad) burns src's WHBAR (requires src to have approved
+/// this contract for the amount — same pattern SaucerSwap's router uses)
+/// and sends the HBAR to dst.
 interface IWHBAR {
     function deposit() external payable;
-    function withdraw(uint256 amount) external;
+    function withdraw(address src, address dst, uint256 wad) external;
 }
 
 contract VeloMainnetProxy is Ownable {
@@ -156,12 +158,52 @@ contract VeloMainnetProxy is Ownable {
 
         emit FeeCollected(whbarToken, feeAmount);
 
-        IWHBAR(whbarContract).withdraw(swapAmount);
-        (bool sent, ) = msg.sender.call{value: swapAmount}("");
-        require(sent, "HBAR send failed");
+        // WHBAR.withdraw pulls the tokens from us via HTS, so approve it first
+        // (same pattern as SaucerSwap's router), sending HBAR straight to the user.
+        IERC20(whbarToken).forceApprove(whbarContract, swapAmount);
+        IWHBAR(whbarContract).withdraw(address(this), msg.sender, swapAmount);
 
         emit SwapExecuted(msg.sender, whbarToken, address(0), amountIn, swapAmount);
         return swapAmount;
+    }
+
+    // Swap any token for native HBAR: pool swap to WHBAR (received by this
+    // contract), then unwrap and send the HBAR to the caller.
+    function swapExactTokensForHBAR(
+        address tokenIn,
+        uint24 poolFee,
+        uint256 amountIn,
+        uint256 amountOutMinimum
+    ) external returns (uint256 amountOut) {
+        require(tokenIn != address(0), "Invalid token");
+        require(amountIn > 0, "Amount must be > 0");
+
+        IERC20(tokenIn).safeTransferFrom(msg.sender, address(this), amountIn);
+
+        uint256 feeAmount = (amountIn * feeBasisPoints) / 10000;
+        uint256 swapAmount = amountIn - feeAmount;
+
+        emit FeeCollected(tokenIn, feeAmount);
+
+        IERC20(tokenIn).forceApprove(saucerSwapRouter, swapAmount);
+
+        ISaucerSwapV2Router.ExactInputSingleParams memory params = ISaucerSwapV2Router.ExactInputSingleParams({
+            tokenIn: tokenIn,
+            tokenOut: whbarToken,
+            fee: poolFee,
+            recipient: address(this),
+            deadline: block.timestamp + 300,
+            amountIn: swapAmount,
+            amountOutMinimum: amountOutMinimum,
+            sqrtPriceLimitX96: 0
+        });
+
+        amountOut = ISaucerSwapV2Router(saucerSwapRouter).exactInputSingle(params);
+
+        IERC20(whbarToken).forceApprove(whbarContract, amountOut);
+        IWHBAR(whbarContract).withdraw(address(this), msg.sender, amountOut);
+
+        emit SwapExecuted(msg.sender, tokenIn, address(0), amountIn, amountOut);
     }
 
     // Owner functions to sweep collected fees

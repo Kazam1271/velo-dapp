@@ -15,7 +15,7 @@ const path = require("path");
 
 // Defaults to the current proxy; pass a different address + solc release as
 // argv to verify older deployments: node scripts/verify-proxy.cjs <address> <solcVersion>
-const ADDRESS = process.argv[2] || "0x00720C916038dd4F29f09940E289ede3D2D1D8E0";
+const ADDRESS = process.argv[2] || "0x00aE201cD833eD38639DCd9eF9b21ebd47f898Da";
 const SOLC_RELEASE = process.argv[3] || "0.8.36";
 const CHAIN_ID = "295"; // Hedera mainnet
 const SOURCIFY = "https://sourcify.dev/server";
