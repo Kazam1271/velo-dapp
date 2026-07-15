@@ -186,14 +186,19 @@ export default function SwapInterface() {
     setPayUsd((amount * priceIn).toFixed(2));
 
     // HBAR <-> WHBAR is a 1:1 wrap handled directly by the proxy — no pool quote.
-    // The protocol fee is charged ON TOP of the typed amount (see handleSwap),
-    // so the user receives exactly what they typed.
-    if (
-      (payToken.symbol === "HBAR" && recvToken.symbol === "WHBAR") ||
-      (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR")
-    ) {
+    // Wrap (HBAR->WHBAR): fee charged ON TOP, user receives exactly what they typed.
+    // Unwrap (WHBAR->HBAR): the typed WHBAR is debited as-is (so MAX can use the
+    // full balance) and the fee comes out of the HBAR received.
+    if (payToken.symbol === "HBAR" && recvToken.symbol === "WHBAR") {
       setReceiveAmount(amount.toFixed(8));
       setReceiveUsd((amount * priceOut).toFixed(2));
+      setIsQuoting(false);
+      return;
+    }
+    if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
+      const out = amount * PROTOCOL_FEE_FACTOR;
+      setReceiveAmount(out.toFixed(8));
+      setReceiveUsd((out * priceOut).toFixed(2));
       setIsQuoting(false);
       return;
     }
@@ -270,8 +275,13 @@ export default function SwapInterface() {
       const decimalsIn = isNativeHbarIn || payToken.symbol === "WHBAR" ? 8 : payToken.decimals;
       // Gross-up: the proxy keeps the protocol fee out of amountIn, so debit
       // typed/(1-fee) — the fee comes out of the remaining balance and the
-      // full typed amount reaches the pool.
-      const grossIn = parseFloat(payAmount) / PROTOCOL_FEE_FACTOR;
+      // full typed amount reaches the pool. Exception: WHBAR->HBAR unwrap
+      // debits exactly the typed amount (fee comes out of the HBAR received),
+      // so MAX can spend the full WHBAR balance.
+      const isUnwrapPath = payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR";
+      const grossIn = isUnwrapPath
+        ? parseFloat(payAmount)
+        : parseFloat(payAmount) / PROTOCOL_FEE_FACTOR;
       const amountIn = ethers.parseUnits(grossIn.toFixed(decimalsIn), decimalsIn);
       // Native HBAR is sent as msg.value, which the Hedera JSON-RPC relay
       // denominates in weibars (18 decimals) — NOT tinybars. Sending the
@@ -420,8 +430,10 @@ export default function SwapInterface() {
   const setPercent = (pct: number) => {
     if (!isConnected || isSwapping) return;
     // The protocol fee is charged on top of the typed amount, so scale the
-    // typed amount down to keep the total debit within the balance.
-    const raw = parseFloat(payBalance) * pct * PROTOCOL_FEE_FACTOR;
+    // typed amount down to keep the total debit within the balance — except
+    // the WHBAR->HBAR unwrap, which debits exactly what's typed.
+    const isUnwrapPath = payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR";
+    const raw = parseFloat(payBalance) * pct * (isUnwrapPath ? 1 : PROTOCOL_FEE_FACTOR);
     setPayAmount(raw.toFixed(2));
   };
 
@@ -509,16 +521,33 @@ export default function SwapInterface() {
         {/* Details Breakdown */}
         {payAmount && parseFloat(payAmount) > 0 && (
           <div className="bg-black/40 border border-white/5 rounded-2xl p-4 mb-4 space-y-2">
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Protocol Fee (added on top)</span>
-              <span className="text-velo-cyan">
-                +{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR - parseFloat(payAmount)).toFixed(4)} {payToken.symbol} ({PROTOCOL_FEE_LABEL})
-              </span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-gray-500">Total Debited</span>
-              <span className="text-white">{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR).toFixed(4)} {payToken.symbol}</span>
-            </div>
+            {payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR" ? (
+              <>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Protocol Fee (from output)</span>
+                  <span className="text-velo-cyan">
+                    −{(parseFloat(payAmount) * (1 - PROTOCOL_FEE_FACTOR)).toFixed(4)} HBAR ({PROTOCOL_FEE_LABEL})
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Total Debited</span>
+                  <span className="text-white">{parseFloat(payAmount).toFixed(4)} WHBAR</span>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Protocol Fee (added on top)</span>
+                  <span className="text-velo-cyan">
+                    +{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR - parseFloat(payAmount)).toFixed(4)} {payToken.symbol} ({PROTOCOL_FEE_LABEL})
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-gray-500">Total Debited</span>
+                  <span className="text-white">{(parseFloat(payAmount) / PROTOCOL_FEE_FACTOR).toFixed(4)} {payToken.symbol}</span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between text-xs">
               <span className="text-gray-500">Routing Path</span>
               <span className="text-white">SaucerSwap V2</span>
@@ -527,24 +556,39 @@ export default function SwapInterface() {
         )}
 
         {/* Action Button */}
-        <button
-          onClick={() => isConnected ? handleSwap() : open()}
-          disabled={isConnected && (isSwapping || isQuoting || !payAmount || parseFloat(payAmount) <= 0 || !receiveAmount)}
-          className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
-        >
-          {isSwapping
-            ? <Loader2 size={20} className="animate-spin" />
-            : !isConnected
-              ? "CONNECT WALLET"
-              : !payAmount || parseFloat(payAmount) <= 0
-                ? "Enter an amount"
-                : isQuoting
-                  ? "Fetching best price…"
-                  : !receiveAmount
-                    ? "No route available"
-                    : `SWAP`
-          }
-        </button>
+        {(() => {
+          // The fee is charged ON TOP, so the wallet is debited typed/(1-fee) —
+          // block amounts whose gross debit exceeds the balance (the tx would
+          // revert on-chain with INSUFFICIENT_TOKEN_BALANCE). The WHBAR->HBAR
+          // unwrap debits exactly what's typed (fee comes out of the output).
+          const isUnwrapBtn = payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR";
+          const grossNeeded = payAmount
+            ? (isUnwrapBtn ? parseFloat(payAmount) : parseFloat(payAmount) / PROTOCOL_FEE_FACTOR)
+            : 0;
+          const insufficient = isConnected && grossNeeded > (parseFloat(payBalance) || 0) + 1e-9;
+          return (
+            <button
+              onClick={() => isConnected ? handleSwap() : open()}
+              disabled={isConnected && (isSwapping || isQuoting || !payAmount || parseFloat(payAmount) <= 0 || !receiveAmount || insufficient)}
+              className="w-full bg-velo-cyan hover:bg-cyan-400 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-cyan mb-6 flex items-center justify-center gap-3"
+            >
+              {isSwapping
+                ? <Loader2 size={20} className="animate-spin" />
+                : !isConnected
+                  ? "CONNECT WALLET"
+                  : !payAmount || parseFloat(payAmount) <= 0
+                    ? "Enter an amount"
+                    : insufficient
+                      ? `Insufficient ${payToken.symbol} (fee added on top)`
+                      : isQuoting
+                        ? "Fetching best price…"
+                        : !receiveAmount
+                          ? "No route available"
+                          : `SWAP`
+              }
+            </button>
+          );
+        })()}
 
         {/* Security / Info */}
         <div className="text-center text-[10px] text-gray-500 bg-velo-bg/50 py-3 px-4 rounded-xl border border-velo-border/50 flex items-center justify-center gap-3">
