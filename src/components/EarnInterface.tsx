@@ -9,10 +9,10 @@ import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
 import { useHashConnect } from "@/contexts/HashConnectContext";
-// IMPORTANT: the native path must use @hashgraph/sdk (the exact SDK hashconnect
-// 3.0.14 bundles), NOT @hiero-ledger/sdk — mixing SDKs across freezeWithSigner/
-// executeWithSigner makes HashPack fail with "reading 'execute'" errors.
+// Native path SDK + helpers — see src/lib/hedera/nativeWallet.ts for the
+// @hashgraph/sdk-only and live-node-pinning requirements.
 import { AccountId, ContractExecuteTransaction, ContractFunctionParameters, ContractId, Hbar, TransactionId } from "@hashgraph/sdk";
+import { fetchLiveNodeAccountIds, fetchEvmTxHash, fetchAccountEvmAddress } from "@/lib/hedera/nativeWallet";
 import { useHCSData } from "@/contexts/HCSDataProvider";
 import { STAKING_VAULT, STAKING_VAULT_ID, VAULT_ABI } from "@/config/contracts";
 
@@ -35,57 +35,6 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
     return (receipt as any)?.hash || tx.hash;
   } catch {
     return tx.hash;
-  }
-}
-
-/**
- * Live mainnet consensus node ids (mirror node). The native path must pin its
- * transactions to CURRENT nodes: hashconnect's bundled SDK (2.41, early 2024)
- * has a stale address book with nodes that no longer exist, and HashPack
- * crashes ("reading 'execute'") on transactions frozen for a dead node — so we
- * never let the signer's populateTransaction pick nodes.
- */
-let cachedNodeIds: AccountId[] | null = null;
-async function fetchLiveNodeAccountIds(): Promise<AccountId[]> {
-  if (cachedNodeIds) return cachedNodeIds;
-  try {
-    const res = await fetch("https://mainnet-public.mirrornode.hedera.com/api/v1/network/nodes?limit=50");
-    const out = await res.json();
-    const ids = (out.nodes || []).map((n: any) => String(n.node_account_id)).slice(0, 10);
-    if (ids.length) cachedNodeIds = ids.map((id: string) => AccountId.fromString(id));
-  } catch { }
-  // Fallback: nodes verified live on mainnet as of 2026-07.
-  return cachedNodeIds || ["0.0.3", "0.0.4", "0.0.7", "0.0.8", "0.0.9"].map((id) => AccountId.fromString(id));
-}
-
-/**
- * Resolve a native Hedera transaction id ("0.0.x@ssss.nnnn") to its EVM-style
- * 0x hash via the mirror node. The XP-sync routes key everything by that hash,
- * so the native (HashPack/ED25519) path needs it after signing.
- */
-async function fetchEvmTxHash(txId: string): Promise<string | null> {
-  const mirrorId = txId.replace("@", "-").replace(/\.(\d+)$/, "-$1");
-  for (let i = 0; i < 10; i++) {
-    try {
-      const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/contracts/results/${mirrorId}`);
-      if (res.ok) {
-        const out = await res.json();
-        if (out?.hash) return out.hash;
-      }
-    } catch { }
-    await new Promise((r) => setTimeout(r, 3000));
-  }
-  return null;
-}
-
-/** EVM alias of a native account (long-zero for ED25519) — for stakedOf reads. */
-async function fetchAccountEvmAddress(accountId: string): Promise<string | null> {
-  try {
-    const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${accountId}`);
-    if (!res.ok) return null;
-    return (await res.json()).evm_address || null;
-  } catch {
-    return null;
   }
 }
 

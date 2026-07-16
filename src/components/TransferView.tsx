@@ -21,6 +21,11 @@ import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { supabase } from "@/lib/supabase";
 import { ethers } from "ethers";
 import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
+import { useHashConnect } from "@/contexts/HashConnectContext";
+// Native path SDK + helpers — see src/lib/hedera/nativeWallet.ts for the
+// @hashgraph/sdk-only and live-node-pinning requirements.
+import { AccountId, Hbar, TokenId, TransactionId, TransferTransaction, Long } from "@hashgraph/sdk";
+import { fetchLiveNodeAccountIds, resolveRecipientAccountId } from "@/lib/hedera/nativeWallet";
 
 // Minimal ERC20 transfer ABI — HTS tokens expose an ERC20 interface at their EVM address.
 const ERC20_TRANSFER_ABI = ["function transfer(address to, uint256 amount) returns (bool)"];
@@ -80,7 +85,14 @@ export default function TransferView() {
   const { open } = useAppKit();
   const { walletProvider } = useAppKitProvider("eip155");
   const { hederaAccountId } = useHederaAccount(evmAddress || null);
-  const accountId = hederaAccountId;
+  const hashconnectCtx = useHashConnect();
+
+  // Two signing paths, same rule as Earn: EVM (Reown, ECDSA accounts) is
+  // preferred; native HashPack (works for ED25519 accounts) is the fallback.
+  const nativeAccountId = hashconnectCtx?.isConnected ? hashconnectCtx.hederaAccountId : null;
+  const isNativeWallet = !isConnected && !!nativeAccountId;
+  const walletConnected = isConnected || isNativeWallet;
+  const accountId = isNativeWallet ? nativeAccountId : hederaAccountId;
 
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
@@ -283,36 +295,68 @@ export default function TransferView() {
 
   const executeTransfer = async () => {
     if (!accountId || !resolvedAddress || isSending) return;
-    if (!walletProvider) {
+    if (!isNativeWallet && !walletProvider) {
       toast.error("Wallet not connected");
       return;
     }
     setIsSending(true);
 
     try {
-      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
-      const signer = await browserProvider.getSigner();
-      const toAddress = await resolveRecipientEvmAddress(resolvedAddress);
       const isNative = selectedToken.tokenId === "NATIVE";
 
       let txHash: string | undefined;
 
-      if (isNative) {
-        // Native HBAR transfer. On the Hedera JSON-RPC relay, msg.value is in
-        // weibars (1 HBAR = 1e18), so parseEther gives the correct value.
-        const tx = await signer.sendTransaction({
-          to: toAddress,
-          value: ethers.parseEther(grossAmount.toString()),
-          gasLimit: 100000,
-        });
-        txHash = await waitForReceiptWithTimeout(tx);
+      if (isNativeWallet) {
+        // Native HashPack path (ED25519-compatible): one TransferTransaction,
+        // recipient addressed by Hedera account id.
+        const sender = AccountId.fromString(accountId);
+        const hcSigner = hashconnectCtx!.hashconnect.getSigner(sender as any);
+        const recipientId = await resolveRecipientAccountId(resolvedAddress);
+        if (!recipientId) {
+          throw new Error("Recipient has no Hedera account yet — ask them to fund their address first.");
+        }
+        const to = AccountId.fromString(recipientId);
+
+        const tx = new TransferTransaction();
+        if (isNative) {
+          const tinybars = Math.round(grossAmount * 1e8);
+          tx.addHbarTransfer(sender, Hbar.fromTinybars(-tinybars))
+            .addHbarTransfer(to, Hbar.fromTinybars(tinybars));
+        } else {
+          const raw = ethers.parseUnits(grossAmount.toString(), selectedToken.decimals);
+          const tid = TokenId.fromString(selectedToken.tokenId);
+          tx.addTokenTransfer(tid, sender, Long.fromString((-raw).toString()))
+            .addTokenTransfer(tid, to, Long.fromString(raw.toString()));
+        }
+        tx.setNodeAccountIds(await fetchLiveNodeAccountIds())
+          .setTransactionId(TransactionId.generate(sender))
+          .freeze();
+        const resp = await tx.executeWithSigner(hcSigner as any);
+        // Plain crypto transfers have no EVM hash; the Hedera tx id is the
+        // unique reference for XP dedup.
+        txHash = resp.transactionId.toString();
       } else {
-        // HTS token transfer via the token's ERC20 interface at its EVM address.
-        if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
-        const amountRaw = ethers.parseUnits(grossAmount.toString(), selectedToken.decimals);
-        const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
-        const tx = await tokenContract.transfer(toAddress, amountRaw, { gasLimit: 900000 });
-        txHash = await waitForReceiptWithTimeout(tx);
+        const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+        const signer = await browserProvider.getSigner();
+        const toAddress = await resolveRecipientEvmAddress(resolvedAddress);
+
+        if (isNative) {
+          // Native HBAR transfer. On the Hedera JSON-RPC relay, msg.value is in
+          // weibars (1 HBAR = 1e18), so parseEther gives the correct value.
+          const tx = await signer.sendTransaction({
+            to: toAddress,
+            value: ethers.parseEther(grossAmount.toString()),
+            gasLimit: 100000,
+          });
+          txHash = await waitForReceiptWithTimeout(tx);
+        } else {
+          // HTS token transfer via the token's ERC20 interface at its EVM address.
+          if (!selectedToken.evmAddress) throw new Error(`${selectedToken.symbol} is missing an EVM address`);
+          const amountRaw = ethers.parseUnits(grossAmount.toString(), selectedToken.decimals);
+          const tokenContract = new ethers.Contract(selectedToken.evmAddress, ERC20_TRANSFER_ABI, signer);
+          const tx = await tokenContract.transfer(toAddress, amountRaw, { gasLimit: 900000 });
+          txHash = await waitForReceiptWithTimeout(tx);
+        }
       }
 
       saveRecentRecipient(recipient, resolvedAddress);
@@ -342,7 +386,10 @@ export default function TransferView() {
       setResolvedAddress(null);
     } catch (error: any) {
       console.error("Transfer failed:", error);
-      toast.error("Transaction failed or was rejected.");
+      const rejected = error?.code === "ACTION_REJECTED" || /reject|denied/i.test(error?.message || "");
+      toast.error(rejected ? "Transaction declined" : "Transfer failed", {
+        description: rejected ? undefined : error?.message,
+      });
     } finally {
       setIsSending(false);
     }
@@ -492,16 +539,39 @@ export default function TransferView() {
 
           {/* Action Button */}
           <button
-            disabled={isConnected && !isReady}
-            onClick={isConnected ? () => setIsReviewModalOpen(true) : () => open()}
+            disabled={walletConnected && !isReady}
+            onClick={walletConnected ? () => setIsReviewModalOpen(true) : () => open()}
             className={`w-full py-5 rounded-2xl font-black text-lg tracking-widest uppercase transition-all shadow-xl
-              ${(!isConnected || isReady)
+              ${(!walletConnected || isReady)
                 ? "bg-velo-cyan text-slate-950 hover:scale-[1.02] hover:shadow-velo-cyan/20 active:scale-[0.98]"
                 : "bg-white/5 text-gray-600 cursor-not-allowed"
               }`}
           >
-            {isConnected ? "Review Transfer" : "Connect Wallet"}
+            {walletConnected ? "Review Transfer" : "Connect Wallet"}
           </button>
+
+          {/* Native HashPack pairing — the path for ED25519 accounts, which the
+              EVM connect modal can't serve. */}
+          {!walletConnected && (
+            <button
+              onClick={() => hashconnectCtx?.connect()}
+              className="w-full text-xs text-gray-400 hover:text-velo-cyan font-bold py-1 transition-colors"
+            >
+              Using an ED25519 HashPack account? Connect natively →
+            </button>
+          )}
+
+          {isNativeWallet && (
+            <div className="text-[10px] text-gray-500 text-center flex items-center justify-center gap-2">
+              <span>Connected natively via HashPack · {accountId}</span>
+              <button
+                onClick={() => hashconnectCtx?.disconnect()}
+                className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wide transition-colors"
+              >
+                Disconnect
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
