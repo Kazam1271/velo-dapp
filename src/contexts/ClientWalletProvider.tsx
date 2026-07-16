@@ -9,6 +9,13 @@ const AppKitProvider = dynamic(
   { ssr: false }
 );
 
+// Native HashPack pairing (supports ED25519 accounts, which can't sign via
+// the EVM/wagmi path). Used by the Earn page's native staking flow.
+const HashConnectProvider = dynamic(
+  () => import('./HashConnectProvider').then((m) => m.HashConnectProvider),
+  { ssr: false }
+);
+
 const BottomNav = dynamic(() => import('@/components/BottomNav'), { ssr: false });
 const Header = dynamic(() => import('@/components/Header'), { ssr: false });
 import { usePathname } from 'next/navigation';
@@ -37,21 +44,23 @@ export function ClientWalletProvider({
 
   return (
     <AppKitProvider initialState={initialState}>
-      <div className="flex flex-col min-h-screen bg-velo-bg text-white selection:bg-velo-cyan/30">
-        {!isLandingPage && <Header />}
-        
-        {isLandingPage ? (
-          <main className="flex-1 w-full">
-            {children}
-          </main>
-        ) : (
-          <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-32 pt-6">
-            {children}
-          </main>
-        )}
-        
-        {!isLandingPage && <BottomNav />}
-      </div>
+      <HashConnectProvider>
+        <div className="flex flex-col min-h-screen bg-velo-bg text-white selection:bg-velo-cyan/30">
+          {!isLandingPage && <Header />}
+
+          {isLandingPage ? (
+            <main className="flex-1 w-full">
+              {children}
+            </main>
+          ) : (
+            <main className="flex-1 w-full max-w-lg mx-auto px-4 pb-32 pt-6">
+              {children}
+            </main>
+          )}
+
+          {!isLandingPage && <BottomNav />}
+        </div>
+      </HashConnectProvider>
     </AppKitProvider>
   );
 }

@@ -7,6 +7,9 @@ export const PROTOCOL_FEE_LABEL = `${PROTOCOL_FEE_BPS / 100}%`;
 // Non-custodial HBAR staking vault (no owner/admin — only each staker can
 // move their own funds). Sourcify-verified. Amounts are tinybars (8 dec).
 export const STAKING_VAULT = "0x58525E513a4e4F4Dd732804C2AF42096091dC9eb";
+// Same contract as a native Hedera entity id — used by the HashPack (ED25519)
+// signing path, which calls the vault via ContractExecuteTransaction.
+export const STAKING_VAULT_ID = "0.0.10647892";
 export const VAULT_ABI = [
   "function stake() payable",
   "function unstake(uint256 amount)",

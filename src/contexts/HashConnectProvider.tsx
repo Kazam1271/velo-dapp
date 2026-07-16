@@ -1,6 +1,7 @@
 import { HashConnect, SessionData } from "hashconnect";
-import { useEffect, useState, useCallback, ReactNode } from "react";
-import { AccountId, LedgerId } from "@hiero-ledger/sdk";
+import { useEffect, useState, useCallback, useRef, ReactNode } from "react";
+// Must come from @hashgraph/sdk (hashconnect's own SDK), not @hiero-ledger/sdk.
+import { LedgerId } from "@hashgraph/sdk";
 import { toast } from "sonner";
 import { HashConnectContext, HashConnectConnectionState, HashConnectContextType } from "./HashConnectContext";
 
@@ -12,14 +13,12 @@ const appMetadata = {
 };
 
 const projectId = "77347672d58ccce678cc86eee18c5918";
-const network = "testnet"; // Forced constant
 
 export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [hashconnect] = useState(() => {
         if (typeof window !== 'undefined') {
-            console.log("[HashConnect] Creating instance with Ledger: testnet, ProjectID:", projectId);
-            // Task 1: Hardcode network explicitly to "testnet" (LedgerId.TESTNET)
-            return new HashConnect(LedgerId.TESTNET, projectId, appMetadata, true);
+            console.log("[HashConnect] Creating instance with Ledger: mainnet, ProjectID:", projectId);
+            return new HashConnect(LedgerId.MAINNET, projectId, appMetadata, true);
         }
         return null as any;
     });
@@ -29,6 +28,9 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
     const [balance, setBalance] = useState("0.00");
     const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
     const [isInitialized, setIsInitialized] = useState(false);
+    // Mirrors isInitialized for the init-timeout check (state would be a stale
+    // closure inside the setTimeout below).
+    const initializedRef = useRef(false);
     const [relayStatus, setRelayStatus] = useState<"connected" | "disconnected" | "connecting">("connecting");
 
     // Derived states
@@ -44,7 +46,7 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         setIsRefreshingBalance(true);
         try {
             const response = await fetch(
-                `https://testnet.mirrornode.hedera.com/api/v1/accounts/${hederaAccountId}`
+                `https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${hederaAccountId}`
             );
             if (response.ok) {
                 const data = await response.json();
@@ -58,8 +60,15 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
         }
     }, [hederaAccountId]);
 
+    // Run init exactly once per HashConnect instance. React StrictMode mounts
+    // effects twice in dev; a second init() re-wires hashconnect's internal
+    // emitters and orphans our pairing listeners (pairing then only shows up
+    // after a reload).
+    const initOnceRef = useRef(false);
+
     useEffect(() => {
-        if (!hashconnect || typeof window === 'undefined') return;
+        if (!hashconnect || typeof window === 'undefined' || initOnceRef.current) return;
+        initOnceRef.current = true;
 
         const init = async () => {
             console.log("[HashConnect] Initializing with Project ID:", projectId);
@@ -104,22 +113,25 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
                 // Some HashConnect v3 versions use this for relay overrides
                 // Task 2: Hardcode "testnet" string explicitly in init
                 await hashconnect.init();
-                
+
+                initializedRef.current = true;
                 setIsInitialized(true);
                 setRelayStatus("connected");
                 console.log("[HashConnect] Initialization complete");
             } catch (error) {
                 console.error("[HashConnect] Init error:", error);
                 setRelayStatus("disconnected");
+                initializedRef.current = true;
                 setIsInitialized(true);
             }
         };
 
         init();
 
-        // Task 3: Connection Timeout & Hint
+        // Init-timeout hint — only if init genuinely hasn't finished.
         const timer = setTimeout(() => {
-            if (!isInitialized) {
+            if (!initializedRef.current) {
+                initializedRef.current = true;
                 setIsInitialized(true);
                 toast.info("Connection taking a while?", {
                     description: "If you're on a restricted network, try disabling ad-blockers or using the HashPack extension directly.",
@@ -128,11 +140,11 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             }
         }, 5000);
         
+        // Deliberately keep the listeners attached — the instance is an
+        // app-lifetime singleton, and detaching here breaks live pairing
+        // updates under StrictMode's double-mount.
         return () => {
             clearTimeout(timer);
-            (hashconnect.connectionStatusChangeEvent as any).off();
-            (hashconnect.pairingEvent as any).off();
-            (hashconnect.disconnectionEvent as any).off();
         };
     }, [hashconnect]);
 
@@ -148,18 +160,8 @@ export const HashConnectProvider = ({ children }: { children: ReactNode }) => {
             return;
         }
 
-        // Task 1: Prioritize Local Extension
-        if (typeof window !== 'undefined' && (window as any).hashpack) {
-            console.log("[HashConnect] Extension found, bypassing relay...");
-            try {
-                (hashconnect as any).connectToLocalWallet();
-                return;
-            } catch (e) {
-                console.warn("[HashConnect] Local connection failed, falling back to modal...", e);
-            }
-        }
-
-        // Fallback to WalletConnect relay bridge for mobile/no-extension users
+        // HashConnect v3's pairing modal handles both the browser extension
+        // and mobile (WalletConnect relay) flows.
         try {
             console.log("[HashConnect] Opening pairing modal...");
             hashconnect.openPairingModal();

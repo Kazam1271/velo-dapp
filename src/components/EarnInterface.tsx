@@ -8,8 +8,13 @@ import { ethers } from "ethers";
 import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
+import { useHashConnect } from "@/contexts/HashConnectContext";
+// IMPORTANT: the native path must use @hashgraph/sdk (the exact SDK hashconnect
+// 3.0.14 bundles), NOT @hiero-ledger/sdk — mixing SDKs across freezeWithSigner/
+// executeWithSigner makes HashPack fail with "reading 'execute'" errors.
+import { AccountId, ContractExecuteTransaction, ContractFunctionParameters, ContractId, Hbar, TransactionId } from "@hashgraph/sdk";
 import { useHCSData } from "@/contexts/HCSDataProvider";
-import { STAKING_VAULT, VAULT_ABI } from "@/config/contracts";
+import { STAKING_VAULT, STAKING_VAULT_ID, VAULT_ABI } from "@/config/contracts";
 
 // Staking pays Velo XP ONLY — funds are held by the non-custodial
 // VeloStakingVault contract; unstaking is an on-chain tx that returns the
@@ -30,6 +35,57 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
     return (receipt as any)?.hash || tx.hash;
   } catch {
     return tx.hash;
+  }
+}
+
+/**
+ * Live mainnet consensus node ids (mirror node). The native path must pin its
+ * transactions to CURRENT nodes: hashconnect's bundled SDK (2.41, early 2024)
+ * has a stale address book with nodes that no longer exist, and HashPack
+ * crashes ("reading 'execute'") on transactions frozen for a dead node — so we
+ * never let the signer's populateTransaction pick nodes.
+ */
+let cachedNodeIds: AccountId[] | null = null;
+async function fetchLiveNodeAccountIds(): Promise<AccountId[]> {
+  if (cachedNodeIds) return cachedNodeIds;
+  try {
+    const res = await fetch("https://mainnet-public.mirrornode.hedera.com/api/v1/network/nodes?limit=50");
+    const out = await res.json();
+    const ids = (out.nodes || []).map((n: any) => String(n.node_account_id)).slice(0, 10);
+    if (ids.length) cachedNodeIds = ids.map((id: string) => AccountId.fromString(id));
+  } catch { }
+  // Fallback: nodes verified live on mainnet as of 2026-07.
+  return cachedNodeIds || ["0.0.3", "0.0.4", "0.0.7", "0.0.8", "0.0.9"].map((id) => AccountId.fromString(id));
+}
+
+/**
+ * Resolve a native Hedera transaction id ("0.0.x@ssss.nnnn") to its EVM-style
+ * 0x hash via the mirror node. The XP-sync routes key everything by that hash,
+ * so the native (HashPack/ED25519) path needs it after signing.
+ */
+async function fetchEvmTxHash(txId: string): Promise<string | null> {
+  const mirrorId = txId.replace("@", "-").replace(/\.(\d+)$/, "-$1");
+  for (let i = 0; i < 10; i++) {
+    try {
+      const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/contracts/results/${mirrorId}`);
+      if (res.ok) {
+        const out = await res.json();
+        if (out?.hash) return out.hash;
+      }
+    } catch { }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return null;
+}
+
+/** EVM alias of a native account (long-zero for ED25519) — for stakedOf reads. */
+async function fetchAccountEvmAddress(accountId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${accountId}`);
+    if (!res.ok) return null;
+    return (await res.json()).evm_address || null;
+  } catch {
+    return null;
   }
 }
 
@@ -55,9 +111,28 @@ export default function EarnPage() {
   const { open } = useAppKit();
   const { walletProvider } = useAppKitProvider("eip155");
   const { hederaAccountId } = useHederaAccount(evmAddress || null);
-  const userAddress = hederaAccountId;
+  const hashconnectCtx = useHashConnect();
+
+  // Two signing paths share this page. EVM (MetaMask / HashPack-ECDSA via
+  // Reown) is preferred when both are connected; native HashPack (works for
+  // ED25519 accounts, which can't sign EVM txs) is the fallback path.
+  const nativeAccountId = hashconnectCtx?.isConnected ? hashconnectCtx.hederaAccountId : null;
+  const isNative = !isConnected && !!nativeAccountId;
+  const walletConnected = isConnected || isNative;
+  const userAddress = isNative ? nativeAccountId : hederaAccountId;
   const { balance, isLoading: isRefreshingBalance, refresh: refreshBalance } = useHederaBalance(userAddress);
   const { pushAction } = useHCSData();
+
+  // EVM alias used for stakedOf reads (native accounts resolve theirs lazily).
+  const [nativeEvmAlias, setNativeEvmAlias] = useState<string | null>(null);
+  useEffect(() => {
+    if (isNative && nativeAccountId) {
+      fetchAccountEvmAddress(nativeAccountId).then(setNativeEvmAlias);
+    } else {
+      setNativeEvmAlias(null);
+    }
+  }, [isNative, nativeAccountId]);
+  const readerEvmAddress = isNative ? nativeEvmAlias : evmAddress;
 
   const [isStaking, setIsStaking] = useState(false);
   const [stakeAmount, setStakeAmount] = useState("");
@@ -71,15 +146,15 @@ export default function EarnPage() {
   const [vaultStaked, setVaultStaked] = useState(0);
 
   const refreshVaultStake = async () => {
-    if (evmAddress) setVaultStaked(await fetchVaultStake(evmAddress));
+    if (readerEvmAddress) setVaultStaked(await fetchVaultStake(readerEvmAddress));
   };
   useEffect(() => {
     refreshVaultStake();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [evmAddress]);
+  }, [readerEvmAddress]);
 
   useEffect(() => {
-    if (isConnected && userAddress) {
+    if (walletConnected && userAddress) {
       fetchStakes();
       // Accrue any pending daily stake-XP (idempotent server-side).
       fetch("/api/xp/stake-accrual", { method: "POST" }).catch(() => {});
@@ -87,7 +162,7 @@ export default function EarnPage() {
       setActiveStakes([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isConnected, userAddress]);
+  }, [walletConnected, userAddress]);
 
   const fetchStakes = async () => {
     if (!userAddress) return;
@@ -106,25 +181,49 @@ export default function EarnPage() {
   };
 
   const handleStake = async () => {
-    if (!isConnected || !userAddress || !walletProvider || !stakeAmount || parseFloat(stakeAmount) <= 0) return;
+    if (!walletConnected || !userAddress || !stakeAmount || parseFloat(stakeAmount) <= 0) return;
+    if (!isNative && !walletProvider) return;
 
     setIsStaking(true);
     const toastId = toast.loading("Initializing Stake...");
 
     try {
-      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
-      const signer = await browserProvider.getSigner();
+      let txHash: string;
 
-      toast.loading("Staking into the vault contract...", { id: toastId });
+      if (isNative) {
+        // Native HashPack path (ED25519-compatible): same vault, called via
+        // ContractExecuteTransaction. Payable amounts are HBAR/tinybars here.
+        toast.loading("Confirm the stake in HashPack...", { id: toastId });
+        const signer = hashconnectCtx!.hashconnect.getSigner(AccountId.fromString(userAddress) as any);
+        // Freeze manually (NOT freezeWithSigner) so the tx is pinned to live
+        // nodes — see fetchLiveNodeAccountIds.
+        const tx = new ContractExecuteTransaction()
+          .setContractId(ContractId.fromString(STAKING_VAULT_ID))
+          .setGas(200000)
+          .setPayableAmount(Hbar.fromTinybars(Math.round(parseFloat(stakeAmount) * 1e8)))
+          .setFunction("stake")
+          .setNodeAccountIds(await fetchLiveNodeAccountIds())
+          .setTransactionId(TransactionId.generate(AccountId.fromString(userAddress)))
+          .freeze();
+        const resp = await tx.executeWithSigner(signer as any);
+        toast.loading("Staking into the vault contract...", { id: toastId });
+        txHash = (await fetchEvmTxHash(resp.transactionId.toString())) || "";
+        if (!txHash) throw new Error("Stake tx not confirmed by the mirror node.");
+      } else {
+        const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+        const signer = await browserProvider.getSigner();
 
-      // Non-custodial: HBAR is held by the verified VeloStakingVault contract.
-      // msg.value is in weibars (1 HBAR = 1e18) on the relay.
-      const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
-      const tx = await vault.stake({
-        value: ethers.parseEther(stakeAmount),
-        gasLimit: 200000,
-      });
-      const txHash = await waitForReceiptWithTimeout(tx);
+        toast.loading("Staking into the vault contract...", { id: toastId });
+
+        // Non-custodial: HBAR is held by the verified VeloStakingVault contract.
+        // msg.value is in weibars (1 HBAR = 1e18) on the relay.
+        const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
+        const tx = await vault.stake({
+          value: ethers.parseEther(stakeAmount),
+          gasLimit: 200000,
+        });
+        txHash = await waitForReceiptWithTimeout(tx);
+      }
       if (!txHash) throw new Error("Deposit failed.");
 
       toast.loading("Securing stake in cloud database...", { id: toastId });
@@ -171,7 +270,8 @@ export default function EarnPage() {
   };
 
   const handleUnstake = async () => {
-    if (!isConnected || !userAddress || !walletProvider || !unstakeStake) return;
+    if (!walletConnected || !userAddress || !unstakeStake) return;
+    if (!isNative && !walletProvider) return;
     const requested = parseFloat(unstakeAmount);
     const maxAvailable = Math.min(Number(unstakeStake.amount), vaultStaked || Number(unstakeStake.amount));
     if (!(requested > 0) || requested > maxAvailable + 1e-9) {
@@ -185,21 +285,41 @@ export default function EarnPage() {
     try {
       // Non-custodial: the vault contract pays the caller back directly —
       // one on-chain transaction, no server involvement in the funds.
-      const browserProvider = new ethers.BrowserProvider(walletProvider as any);
-      const signer = await browserProvider.getSigner();
-      const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
       // Vault amounts are tinybars (8 decimals).
-      const tx = await vault.unstake(ethers.parseUnits(requested.toFixed(8), 8), { gasLimit: 200000 });
+      const tinybars = Math.round(requested * 1e8);
+      let txHash: string | null;
 
-      toast.loading("Unstaking on-chain...", { id: toastId });
-      const txHash = await waitForReceiptWithTimeout(tx);
+      if (isNative) {
+        const signer = hashconnectCtx!.hashconnect.getSigner(AccountId.fromString(userAddress) as any);
+        const tx = new ContractExecuteTransaction()
+          .setContractId(ContractId.fromString(STAKING_VAULT_ID))
+          .setGas(200000)
+          .setFunction("unstake", new ContractFunctionParameters().addUint256(tinybars))
+          .setNodeAccountIds(await fetchLiveNodeAccountIds())
+          .setTransactionId(TransactionId.generate(AccountId.fromString(userAddress)))
+          .freeze();
+        const resp = await tx.executeWithSigner(signer as any);
+        toast.loading("Unstaking on-chain...", { id: toastId });
+        // unstake-record keys off the EVM-style hash; resolve it via the mirror node.
+        txHash = await fetchEvmTxHash(resp.transactionId.toString());
+      } else {
+        const browserProvider = new ethers.BrowserProvider(walletProvider as any);
+        const signer = await browserProvider.getSigner();
+        const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
+        const tx = await vault.unstake(BigInt(tinybars), { gasLimit: 200000 });
+
+        toast.loading("Unstaking on-chain...", { id: toastId });
+        txHash = await waitForReceiptWithTimeout(tx);
+      }
 
       // Sync the stake records (drives daily XP) from the on-chain event.
-      fetch("/api/unstake-record", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ txHash, accountId: userAddress }),
-      }).catch(() => {});
+      if (txHash) {
+        fetch("/api/unstake-record", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ txHash, accountId: userAddress }),
+        }).catch(() => {});
+      }
 
       toast.success(`Unstaked ${requested} HBAR — back in your wallet.`, { id: toastId });
       setUnstakeStake(null);
@@ -208,7 +328,7 @@ export default function EarnPage() {
       refreshVaultStake();
       setTimeout(fetchStakes, 2500);
     } catch (err: any) {
-      const rejected = err?.code === "ACTION_REJECTED" || /rejected|denied/i.test(err?.message || "");
+      const rejected = err?.code === "ACTION_REJECTED" || /reject|denied/i.test(err?.message || "");
       toast.error(rejected ? "Transaction declined" : "Unstake Failed", { id: toastId, description: rejected ? undefined : err.message });
     } finally {
       setIsUnstaking(false);
@@ -284,18 +404,41 @@ export default function EarnPage() {
         </div>
 
         <button
-          onClick={isConnected ? handleStake : () => open()}
-          disabled={isConnected && (isStaking || !stakeAmount || parseFloat(stakeAmount) <= 0 || parseFloat(stakeAmount) > balanceNum)}
-          className="w-full bg-velo-green hover:bg-green-500 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-green mb-6 flex items-center justify-center gap-3"
+          onClick={walletConnected ? handleStake : () => open()}
+          disabled={walletConnected && (isStaking || !stakeAmount || parseFloat(stakeAmount) <= 0 || parseFloat(stakeAmount) > balanceNum)}
+          className={`w-full bg-velo-green hover:bg-green-500 disabled:opacity-40 text-[#0b0e14] text-lg font-bold py-4 rounded-xl transition-all glow-green flex items-center justify-center gap-3 ${walletConnected ? "mb-6" : "mb-2"}`}
         >
           {isStaking
             ? <Loader2 size={20} className="animate-spin" />
-            : !isConnected
+            : !walletConnected
               ? "CONNECT WALLET"
               : stakeAmount && parseFloat(stakeAmount) > balanceNum
                 ? "INSUFFICIENT HBAR"
                 : "STAKE HBAR"}
         </button>
+
+        {/* Native HashPack pairing — the path for ED25519 accounts, which the
+            EVM connect modal can't serve. */}
+        {!walletConnected && (
+          <button
+            onClick={() => hashconnectCtx?.connect()}
+            className="w-full text-xs text-gray-400 hover:text-velo-cyan font-bold py-2 mb-4 transition-colors"
+          >
+            Using an ED25519 HashPack account? Connect natively →
+          </button>
+        )}
+
+        {isNative && (
+          <div className="text-[10px] text-gray-500 text-center -mt-4 mb-4 flex items-center justify-center gap-2">
+            <span>Connected natively via HashPack · {userAddress}</span>
+            <button
+              onClick={() => hashconnectCtx?.disconnect()}
+              className="text-rose-400 hover:text-rose-300 font-bold uppercase tracking-wide transition-colors"
+            >
+              Disconnect
+            </button>
+          </div>
+        )}
 
         {/* Active Stakes List */}
         <div className="border-t border-velo-border pt-4">
