@@ -1,0 +1,55 @@
+#!/bin/sh
+# Velo pre-commit secret guard — blocks private keys and env files from
+# entering the repo. Dependency-free (POSIX sh + grep).
+#
+# Bypass ONLY when you are certain it's a false positive:
+#   git commit --no-verify
+# Or mark a specific line safe by adding a trailing:  # allow-secret
+
+fail=0
+red() { printf '\033[31m%s\033[0m\n' "$1"; }
+
+staged=$(git diff --cached --name-only --diff-filter=AM)
+[ -z "$staged" ] && exit 0
+
+# 1) Never commit a real env file (allow *.example / *.sample / *.template).
+for f in $staged; do
+  case "$f" in
+    .env|.env.*|*.env|*.env.local)
+      case "$f" in
+        *.example|*.sample|*.template) ;;
+        *) red "BLOCKED: attempting to commit an env file: $f"; fail=1 ;;
+      esac
+      ;;
+  esac
+done
+
+# 2) Scan staged content for private-key material.
+#    - Hedera DER-encoded keys (ED25519/ECDSA) start 302e/302a 0201 ...
+#    - Raw 32-byte hex keys: 0x followed by exactly 64 hex chars
+KEYRE='302[ae]0201|0x[a-fA-F0-9]{64}[^a-fA-F0-9]'
+ALLOW='txHash|tx_hash|topic|keccak|sha256|sha3|bytecode|deployedBytecode|selector|allow-secret'
+
+for f in $staged; do
+  case "$f" in
+    *.ts|*.tsx|*.js|*.cjs|*.mjs|*.json|*.sol|*.txt|*.md|.env*) ;;
+    *) continue ;;
+  esac
+  content=$(git show ":$f" 2>/dev/null) || continue
+  # append a space so a key at end-of-line still has a trailing non-hex char
+  hits=$(printf '%s \n' "$content" | grep -nEI "$KEYRE" | grep -viE "$ALLOW")
+  if [ -n "$hits" ]; then
+    red "BLOCKED: possible private key in $f:"
+    printf '%s\n' "$hits" | cut -c1-100 | sed 's/^/    /'
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  echo ""
+  echo "Commit blocked by Velo secret guard."
+  echo "  • False positive? add '# allow-secret' on the line, or"
+  echo "  • bypass (be sure!) with:  git commit --no-verify"
+  exit 1
+fi
+exit 0
