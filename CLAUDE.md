@@ -12,9 +12,11 @@ Next.js 16 + TypeScript + Solidity. Currently migrating from testnet/brokerage t
   via the mainnet mirror node. `getBestSaucerSwapQuote` tries all fee tiers (500/1500/3000/10000)
   and returns the best pool + tier; `SwapInterface.tsx` uses that tier for the actual swap.
 - **Wallet**: Reown AppKit / wagmi (MetaMask-compatible, ECDSA accounts only) for Swap,
-  Transfer, Earn + Header. **Earn additionally supports native HashPack pairing (ED25519
-  accounts)** via `HashConnectProvider` (mainnet), which calls the same vault through
-  `ContractExecuteTransaction`; the EVM path is preferred when both wallets are connected.
+  Transfer, Earn + Header. **Earn and Transfer additionally support native HashPack pairing
+  (ED25519 accounts)** via `HashConnectProvider` (mainnet): Earn calls the vault through
+  `ContractExecuteTransaction`, Transfer sends a `TransferTransaction`. Shared native-path
+  helpers in `src/lib/hedera/nativeWallet.ts`; the EVM path is preferred when both are
+  connected. Swap is still EVM-only.
 - **XP system** (Supabase/Postgres, schema in `xp_engine.sql`):
   - 500 XP "Early Adopter" bonus on first wallet connect (`api/xp/onboard`, wired in `Header.tsx`).
     (This replaced the old 500 VELO token airdrop, which was removed.)
@@ -42,7 +44,7 @@ npm run dev   # -> http://localhost:3000
 ## Open items / TODO (see MIGRATION_NOTES.md §2–3)
 1. Deploy `VeloMainnetProxy` to mainnet; set `NEXT_PUBLIC_VELO_PROXY_ADDRESS`.
 2. Set the proxy's max auto-associations to unlimited (-1) so it can hold non-HBAR fee tokens.
-3. (Optional) Extend native HashPack (ED25519) support from Earn to Swap
+3. (Optional) Extend native HashPack (ED25519) support from Earn+Transfer to Swap
    (needs HTS `AccountAllowanceApproveTransaction` instead of ERC20 approve).
 4. (Optional) Multi-hop routing (`exactInput` with a path) for true any-to-any swaps.
 5. Add PACK/USDT once their mainnet ids + V2 pools are verified.
