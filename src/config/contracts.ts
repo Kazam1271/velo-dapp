@@ -4,6 +4,18 @@ export const PROTOCOL_FEE_BPS = 25; // 0.25%
 export const PROTOCOL_FEE_FACTOR = 1 - PROTOCOL_FEE_BPS / 10000;
 export const PROTOCOL_FEE_LABEL = `${PROTOCOL_FEE_BPS / 100}%`;
 
+// Non-custodial HBAR staking vault (no owner/admin — only each staker can
+// move their own funds). Sourcify-verified. Amounts are tinybars (8 dec).
+export const STAKING_VAULT = "0x58525E513a4e4F4Dd732804C2AF42096091dC9eb";
+export const VAULT_ABI = [
+  "function stake() payable",
+  "function unstake(uint256 amount)",
+  "function stakedOf(address user) view returns (uint256)",
+  "function totalStaked() view returns (uint256)",
+  "event Staked(address indexed user, uint256 amount)",
+  "event Unstaked(address indexed user, uint256 amount)",
+];
+
 export const CONTRACTS = {
   // Mainnet Addresses
   SaucerSwapV2Router: "0x00000000000000000000000000000000003c437a", // 0.0.3949434

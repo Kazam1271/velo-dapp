@@ -9,15 +9,11 @@ import { useHederaBalance } from "@/hooks/useHederaBalance";
 import { useHederaAccount } from "@/hooks/useHederaAccount";
 import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
 import { useHCSData } from "@/contexts/HCSDataProvider";
+import { STAKING_VAULT, VAULT_ABI } from "@/config/contracts";
 
-// Mainnet treasury — the account MAINNET_TREASURY_KEY controls (0xc2d7…251c).
-// (The previous value 0.0.8642596 was the TESTNET treasury id, which on
-// mainnet belongs to a stranger — stakes would have been lost.)
-const TREASURY_ID = "0.0.10609462";
-
-// Staking pays Velo XP ONLY — unstaking returns exactly the principal
-// (api/claim-rewards pays no HBAR interest). Keep the rate in sync with
-// api/xp/stake-accrual.
+// Staking pays Velo XP ONLY — funds are held by the non-custodial
+// VeloStakingVault contract; unstaking is an on-chain tx that returns the
+// staker's HBAR directly. Keep the rate in sync with api/xp/stake-accrual.
 const XP_PER_10_HBAR_PER_DAY = 1;
 
 /**
@@ -37,33 +33,21 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
   }
 }
 
-/** Deterministic "long-zero" EVM address for a Hedera account id ("0.0.x"). */
-function toEvmAddress(idOrAddr: string): string {
-  const s = idOrAddr.trim();
-  if (s.startsWith("0x")) return s;
-  const parts = s.split(".");
-  const num = BigInt(parts[parts.length - 1]);
-  return "0x" + num.toString(16).padStart(40, "0");
-}
-
-/**
- * Resolve an account to the EVM address the relay accepts: alias accounts
- * (MetaMask/ECDSA) must be addressed by their mirror-node `evm_address`;
- * long-zero only works for accounts without an alias.
- */
-async function resolveEvmAddress(idOrAddr: string): Promise<string> {
-  const s = idOrAddr.trim();
-  if (s.startsWith("0x")) return s;
+/** Read the caller's staked balance straight from the vault (mirror node). */
+async function fetchVaultStake(userEvm: string): Promise<number> {
   try {
-    const res = await fetch(`https://mainnet-public.mirrornode.hedera.com/api/v1/accounts/${s}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.evm_address) return data.evm_address;
-    }
+    const iface = new ethers.Interface(VAULT_ABI);
+    const res = await fetch("https://mainnet-public.mirrornode.hedera.com/api/v1/contracts/call", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ to: STAKING_VAULT, data: iface.encodeFunctionData("stakedOf", [userEvm]) }),
+    });
+    if (!res.ok) return 0;
+    const out = await res.json();
+    return out.result ? Number(BigInt(out.result)) / 1e8 : 0;
   } catch {
-    /* fall through to long-zero */
+    return 0;
   }
-  return toEvmAddress(s);
 }
 
 export default function EarnPage() {
@@ -83,6 +67,16 @@ export default function EarnPage() {
   const [unstakeStake, setUnstakeStake] = useState<any | null>(null);
   const [unstakeAmount, setUnstakeAmount] = useState("");
   const [isUnstaking, setIsUnstaking] = useState(false);
+  // On-chain staked balance (authoritative — read from the vault contract)
+  const [vaultStaked, setVaultStaked] = useState(0);
+
+  const refreshVaultStake = async () => {
+    if (evmAddress) setVaultStaked(await fetchVaultStake(evmAddress));
+  };
+  useEffect(() => {
+    refreshVaultStake();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [evmAddress]);
 
   useEffect(() => {
     if (isConnected && userAddress) {
@@ -120,15 +114,15 @@ export default function EarnPage() {
     try {
       const browserProvider = new ethers.BrowserProvider(walletProvider as any);
       const signer = await browserProvider.getSigner();
-      const treasuryAddress = await resolveEvmAddress(TREASURY_ID);
 
-      toast.loading("Depositing HBAR to Vault...", { id: toastId });
+      toast.loading("Staking into the vault contract...", { id: toastId });
 
-      // Native HBAR deposit — msg.value is in weibars (1 HBAR = 1e18) on the relay.
-      const tx = await signer.sendTransaction({
-        to: treasuryAddress,
+      // Non-custodial: HBAR is held by the verified VeloStakingVault contract.
+      // msg.value is in weibars (1 HBAR = 1e18) on the relay.
+      const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
+      const tx = await vault.stake({
         value: ethers.parseEther(stakeAmount),
-        gasLimit: 100000,
+        gasLimit: 200000,
       });
       const txHash = await waitForReceiptWithTimeout(tx);
       if (!txHash) throw new Error("Deposit failed.");
@@ -165,6 +159,7 @@ export default function EarnPage() {
 
       setStakeAmount("");
       refreshBalance();
+      refreshVaultStake();
       fetchStakes();
 
     } catch (error: any) {
@@ -175,58 +170,46 @@ export default function EarnPage() {
     }
   };
 
-  /** Must match the server's buildUnstakeMessage in api/claim-rewards. */
-  const buildUnstakeMessage = (stakeId: number | string, amount: string, timestamp: number) =>
-    `Velo Unstake\nStake: ${stakeId}\nAmount: ${amount} HBAR\nTimestamp: ${timestamp}`;
-
   const handleUnstake = async () => {
     if (!isConnected || !userAddress || !walletProvider || !unstakeStake) return;
     const requested = parseFloat(unstakeAmount);
-    if (!(requested > 0) || requested > Number(unstakeStake.amount) + 1e-9) {
+    const maxAvailable = Math.min(Number(unstakeStake.amount), vaultStaked || Number(unstakeStake.amount));
+    if (!(requested > 0) || requested > maxAvailable + 1e-9) {
       toast.error("Enter a valid amount within your stake.");
       return;
     }
 
     setIsUnstaking(true);
-    const toastId = toast.loading("Sign the unstake request in your wallet...");
+    const toastId = toast.loading("Confirm the unstake transaction in your wallet...");
 
     try {
-      // Gasless authorization: the wallet signs a message proving ownership;
-      // the server verifies it before paying out from the treasury.
+      // Non-custodial: the vault contract pays the caller back directly —
+      // one on-chain transaction, no server involvement in the funds.
       const browserProvider = new ethers.BrowserProvider(walletProvider as any);
       const signer = await browserProvider.getSigner();
-      const timestamp = Date.now();
-      const amountStr = requested.toString();
-      const signature = await signer.signMessage(buildUnstakeMessage(unstakeStake.id, amountStr, timestamp));
+      const vault = new ethers.Contract(STAKING_VAULT, VAULT_ABI, signer);
+      // Vault amounts are tinybars (8 decimals).
+      const tx = await vault.unstake(ethers.parseUnits(requested.toFixed(8), 8), { gasLimit: 200000 });
 
-      toast.loading("Unstaking...", { id: toastId });
+      toast.loading("Unstaking on-chain...", { id: toastId });
+      const txHash = await waitForReceiptWithTimeout(tx);
 
-      const res = await fetch("/api/claim-rewards", {
+      // Sync the stake records (drives daily XP) from the on-chain event.
+      fetch("/api/unstake-record", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          stakeId: unstakeStake.id,
-          accountId: userAddress,
-          amount: amountStr,
-          signature,
-          timestamp,
-        })
-      });
+        body: JSON.stringify({ txHash, accountId: userAddress }),
+      }).catch(() => {});
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-
-      toast.success(`Unstaked ${requested} HBAR — back in your wallet.`, {
-        id: toastId,
-        description: data.remaining > 0 ? `${data.remaining.toFixed(2)} HBAR still staked and earning XP.` : undefined,
-      });
+      toast.success(`Unstaked ${requested} HBAR — back in your wallet.`, { id: toastId });
       setUnstakeStake(null);
       setUnstakeAmount("");
       refreshBalance();
-      fetchStakes();
+      refreshVaultStake();
+      setTimeout(fetchStakes, 2500);
     } catch (err: any) {
       const rejected = err?.code === "ACTION_REJECTED" || /rejected|denied/i.test(err?.message || "");
-      toast.error(rejected ? "Signature declined" : "Unstake Failed", { id: toastId, description: rejected ? undefined : err.message });
+      toast.error(rejected ? "Transaction declined" : "Unstake Failed", { id: toastId, description: rejected ? undefined : err.message });
     } finally {
       setIsUnstaking(false);
     }
@@ -379,7 +362,7 @@ export default function EarnPage() {
               </button>
             </div>
             <p className="text-[10px] text-gray-500 mb-4">
-              You&apos;ll sign a free message in your wallet to authorize this — no gas needed.
+              One on-chain transaction — the vault contract sends your HBAR straight back to your wallet.
             </p>
 
             <div className="grid grid-cols-2 gap-3">
