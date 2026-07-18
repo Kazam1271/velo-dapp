@@ -1,6 +1,6 @@
-# CLAUDE.md — Velo dApp
+# Velo dApp
 
-Context for AI coding agents (Claude Code, etc.). Velo is a Hedera DEX (veloexchange.org),
+Velo is a Hedera DEX (veloexchange.org),
 Next.js 16 + TypeScript + Solidity. Currently migrating from testnet/brokerage to
 **mainnet + real SaucerSwap V2 routing**. See `MIGRATION_NOTES.md` for the full detail.
 
