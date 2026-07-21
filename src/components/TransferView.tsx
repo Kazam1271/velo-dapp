@@ -96,6 +96,9 @@ export default function TransferView() {
 
   const [recipient, setRecipient] = useState("");
   const [amount, setAmount] = useState("");
+  // Optional Hedera transaction memo (exchange deposit tag). Only the native
+  // HashPack path can attach it — the EVM/relay path has no memo field.
+  const [memo, setMemo] = useState("");
   const [selectedToken, setSelectedToken] = useState<Token>(TOKEN_LIST[0]);
   const [isTokenSelectorOpen, setIsTokenSelectorOpen] = useState(false);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -299,6 +302,12 @@ export default function TransferView() {
       toast.error("Wallet not connected");
       return;
     }
+    // Safety net: the EVM/relay path physically cannot attach a Hedera memo, so
+    // never let an EVM user send one (an exchange deposit would be lost).
+    if (memo.trim() && !isNativeWallet) {
+      toast.error("This wallet can't attach a memo — connect with native HashPack to send to an exchange.");
+      return;
+    }
     setIsSending(true);
 
     try {
@@ -328,6 +337,7 @@ export default function TransferView() {
           tx.addTokenTransfer(tid, sender, Long.fromString((-raw).toString()))
             .addTokenTransfer(tid, to, Long.fromString(raw.toString()));
         }
+        if (memo.trim()) tx.setTransactionMemo(memo.trim());
         tx.setNodeAccountIds(await fetchLiveNodeAccountIds())
           .setTransactionId(TransactionId.generate(sender))
           .freeze();
@@ -384,6 +394,7 @@ export default function TransferView() {
       setAmount("");
       setRecipient("");
       setResolvedAddress(null);
+      setMemo("");
     } catch (error: any) {
       console.error("Transfer failed:", error);
       const rejected = error?.code === "ACTION_REJECTED" || /reject|denied/i.test(error?.message || "");
@@ -395,7 +406,11 @@ export default function TransferView() {
     }
   };
 
-  const isReady = parseFloat(amount) > 0 && resolvedAddress !== null && !isResolving && !resolveError;
+  // A memo can only be attached on the native HashPack path. If an EVM wallet
+  // is connected and a memo is entered, block the send so funds can't be lost.
+  const memoEntered = memo.trim().length > 0;
+  const memoBlockedOnEvm = memoEntered && walletConnected && !isNativeWallet;
+  const isReady = parseFloat(amount) > 0 && resolvedAddress !== null && !isResolving && !resolveError && !memoBlockedOnEvm;
 
   return (
     <div className="space-y-6">
@@ -520,6 +535,40 @@ export default function TransferView() {
             </div>
           </div>
 
+          {/* Memo / Tag (optional) */}
+          <div className="space-y-2">
+            <div className="flex justify-between items-end ml-1">
+              <label className="text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">Memo / Tag <span className="text-gray-600 normal-case tracking-normal">(optional)</span></label>
+              <span className="text-[10px] font-bold text-gray-600">{memo.length}/100</span>
+            </div>
+            <input
+              type="text"
+              value={memo}
+              maxLength={100}
+              onChange={(e) => setMemo(e.target.value)}
+              placeholder="e.g. exchange deposit memo / tag"
+              className="w-full bg-black/40 border border-white/5 rounded-2xl py-3 px-4 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-velo-cyan/30 transition-all"
+            />
+            {/* Exchange warning — memo is mandatory for exchange deposits. */}
+            <div className="flex items-start gap-2 ml-1">
+              <Info size={13} className="text-amber-400 shrink-0 mt-0.5" />
+              <p className="text-[10px] text-gray-400 leading-relaxed">
+                Sending to an <span className="text-amber-400 font-bold">exchange (Binance, Bitget, etc.)</span>? You <span className="text-amber-400 font-bold">must</span> enter their memo/tag here, or your deposit can be permanently lost.
+              </p>
+            </div>
+            {/* EVM path can't carry a Hedera memo — block and redirect. */}
+            {memoBlockedOnEvm && (
+              <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-3 space-y-2">
+                <p className="text-[11px] text-rose-300 leading-relaxed">
+                  Your connected wallet (MetaMask/EVM) <span className="font-bold">can&apos;t attach a memo</span> to a Hedera transfer. Sending now would drop the memo and your exchange deposit could be lost.
+                </p>
+                <p className="text-[11px] text-gray-300 leading-relaxed">
+                  To send with a memo, disconnect and reconnect with <span className="font-bold text-velo-cyan">native HashPack</span> (the connect option on this page), which supports memos.
+                </p>
+              </div>
+            )}
+          </div>
+
           {/* Fee Breakdown */}
           <div className="bg-black/40 rounded-2xl p-4 border border-white/5 space-y-3">
             <div className="flex justify-between items-center text-xs">
@@ -605,7 +654,14 @@ export default function TransferView() {
                     <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Recipient</p>
                     <p className="text-sm font-mono text-white break-all bg-white/5 p-2 rounded-xl border border-white/5">{resolvedAddress}</p>
                   </div>
-                  
+
+                  {memoEntered && (
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest">Memo / Tag</p>
+                      <p className="text-sm font-mono text-white break-all bg-amber-400/10 p-2 rounded-xl border border-amber-400/20">{memo.trim()}</p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <p className="text-[9px] font-black text-gray-600 uppercase tracking-widest">Protocol Fee</p>
