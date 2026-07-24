@@ -55,6 +55,26 @@ async function fetchVaultStake(userEvm: string): Promise<number> {
   }
 }
 
+/**
+ * Mirror the server's FIFO reduction (api/unstake-record) locally so the stakes
+ * list updates the instant an unstake succeeds — the on-chain record sync can
+ * lag ~30s behind, and we must not show the just-unstaked amount as still active.
+ */
+function reduceStakesFIFO(stakes: any[], amount: number): any[] {
+  let remaining = amount;
+  return [...stakes]
+    .sort((a, b) => a.timestamp - b.timestamp)
+    .map((s) => {
+      const amt = Number(s.amount);
+      if (remaining <= 1e-9) return s;
+      if (remaining >= amt - 1e-9) { remaining -= amt; return null; } // fully unstaked
+      const reduced = { ...s, amount: amt - remaining };
+      remaining = 0;
+      return reduced;
+    })
+    .filter(Boolean);
+}
+
 export default function EarnPage() {
   const { address: evmAddress, isConnected } = useAppKitAccount();
   const { open } = useAppKit();
@@ -261,13 +281,28 @@ export default function EarnPage() {
         txHash = await waitForReceiptWithTimeout(tx);
       }
 
-      // Sync the stake records (drives daily XP) from the on-chain event.
+      // Optimistically reflect the unstake right away — the on-chain record
+      // sync below can lag ~30s, and the list must not keep showing the amount
+      // the user just withdrew.
+      setActiveStakes((prev) => reduceStakesFIFO(prev, requested));
+
+      // Sync the stake records (drives daily XP) from the on-chain event, then
+      // reconcile the list — but ONLY once the server confirms the update, so a
+      // premature refetch can't overwrite the optimistic list with stale data.
       if (txHash) {
-        fetch("/api/unstake-record", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ txHash, accountId: userAddress }),
-        }).catch(() => {});
+        (async () => {
+          try {
+            const res = await fetch("/api/unstake-record", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ txHash, accountId: userAddress }),
+            });
+            const data = await res.json().catch(() => null);
+            if (res.ok && data?.success) fetchStakes();
+          } catch {
+            /* keep the optimistic list; a later reload reconciles */
+          }
+        })();
       }
 
       toast.success(`Unstaked ${requested} HBAR — back in your wallet.`, { id: toastId });
@@ -275,7 +310,7 @@ export default function EarnPage() {
       setUnstakeAmount("");
       refreshBalance();
       refreshVaultStake();
-      setTimeout(fetchStakes, 2500);
+      setTimeout(refreshVaultStake, 6000);
     } catch (err: any) {
       const rejected = err?.code === "ACTION_REJECTED" || /reject|denied/i.test(err?.message || "");
       toast.error(rejected ? "Transaction declined" : "Unstake Failed", { id: toastId, description: rejected ? undefined : err.message });
