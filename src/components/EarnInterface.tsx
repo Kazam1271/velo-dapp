@@ -403,14 +403,24 @@ export default function EarnPage() {
           ) : (
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
               {activeStakes.map(stake => {
-                const days = ((Date.now() - stake.timestamp) / (1000 * 60 * 60 * 24)).toFixed(1);
+                const elapsedDays = (Date.now() - stake.timestamp) / (1000 * 60 * 60 * 24);
+                const days = elapsedDays.toFixed(1);
                 const xpPerDay = Math.floor((stake.amount / 10) * XP_PER_10_HBAR_PER_DAY);
+                // XP is credited per FULL day elapsed (matches api/xp/stake-accrual),
+                // so total earned so far = whole days × XP/day.
+                const totalXpEarned = Math.floor(elapsedDays) * xpPerDay;
 
                 return (
                   <div key={stake.id} className="bg-black/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                     <div>
                       <div className="text-white font-bold text-sm">{stake.amount} HBAR</div>
                       <div className="text-[10px] text-gray-500">Staked {days} days ago{xpPerDay > 0 ? ` · +${xpPerDay} XP/day` : ""}</div>
+                      {xpPerDay > 0 && (
+                        <div className="text-[10px] text-velo-cyan font-bold mt-0.5 flex items-center gap-1">
+                          <Zap size={10} className="shrink-0" />
+                          {totalXpEarned} XP earned so far
+                        </div>
+                      )}
                     </div>
                     <button
                       onClick={() => { setUnstakeStake(stake); setUnstakeAmount(String(stake.amount)); }}
