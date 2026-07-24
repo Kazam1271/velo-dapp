@@ -38,8 +38,13 @@ async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise
   }
 }
 
-/** Read the caller's staked balance straight from the vault (mirror node). */
-async function fetchVaultStake(userEvm: string): Promise<number> {
+/**
+ * Read the caller's staked balance straight from the vault (mirror node).
+ * Returns null when the read FAILS (so callers can tell "couldn't read" apart
+ * from a genuine 0 and avoid wrongly hiding stakes). This on-chain value is the
+ * source of truth for how much is actually staked.
+ */
+async function fetchVaultStake(userEvm: string): Promise<number | null> {
   try {
     const iface = new ethers.Interface(VAULT_ABI);
     const res = await fetch("https://mainnet-public.mirrornode.hedera.com/api/v1/contracts/call", {
@@ -47,11 +52,11 @@ async function fetchVaultStake(userEvm: string): Promise<number> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ to: STAKING_VAULT, data: iface.encodeFunctionData("stakedOf", [userEvm]) }),
     });
-    if (!res.ok) return 0;
+    if (!res.ok) return null;
     const out = await res.json();
     return out.result ? Number(BigInt(out.result)) / 1e8 : 0;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -111,8 +116,9 @@ export default function EarnPage() {
   const [unstakeStake, setUnstakeStake] = useState<any | null>(null);
   const [unstakeAmount, setUnstakeAmount] = useState("");
   const [isUnstaking, setIsUnstaking] = useState(false);
-  // On-chain staked balance (authoritative — read from the vault contract)
-  const [vaultStaked, setVaultStaked] = useState(0);
+  // On-chain staked balance (authoritative — read from the vault contract).
+  // null = not yet read / read failed (distinct from a genuine 0).
+  const [vaultStaked, setVaultStaked] = useState<number | null>(null);
 
   const refreshVaultStake = async () => {
     if (readerEvmAddress) setVaultStaked(await fetchVaultStake(readerEvmAddress));
@@ -242,7 +248,9 @@ export default function EarnPage() {
     if (!walletConnected || !userAddress || !unstakeStake) return;
     if (!isNative && !walletProvider) return;
     const requested = parseFloat(unstakeAmount);
-    const maxAvailable = Math.min(Number(unstakeStake.amount), vaultStaked || Number(unstakeStake.amount));
+    // Cap by the on-chain balance when we have it (null = unread → trust the row).
+    const chainCap = typeof vaultStaked === "number" ? vaultStaked : Number(unstakeStake.amount);
+    const maxAvailable = Math.min(Number(unstakeStake.amount), chainCap);
     if (!(requested > 0) || requested > maxAvailable + 1e-9) {
       toast.error("Enter a valid amount within your stake.");
       return;
@@ -323,6 +331,18 @@ export default function EarnPage() {
   const dailyXpPreview = stakeAmount && parseFloat(stakeAmount) > 0
     ? Math.floor((parseFloat(stakeAmount) / 10) * XP_PER_10_HBAR_PER_DAY)
     : 0;
+
+  // Reconcile the DB-backed stake records against the on-chain staked balance
+  // (the source of truth). If a stake was unstaked but api/unstake-record never
+  // cleared the row, the DB sum exceeds the chain balance — trim the excess
+  // FIFO so the list never shows a stake the user already withdrew. Only trim
+  // when we actually read the chain (vaultStaked !== null).
+  const displayStakes = (() => {
+    if (vaultStaked === null) return activeStakes;
+    const dbTotal = activeStakes.reduce((sum, s) => sum + Number(s.amount), 0);
+    if (dbTotal <= vaultStaked + 1e-9) return activeStakes;
+    return reduceStakesFIFO(activeStakes, dbTotal - vaultStaked);
+  })();
 
   return (
     <div className="w-full max-w-md mx-auto mt-8 flex flex-col gap-4 mb-24">
@@ -431,13 +451,13 @@ export default function EarnPage() {
             {isFetchingStakes && <RefreshCw size={10} className="animate-spin ml-auto" />}
           </h3>
 
-          {activeStakes.length === 0 ? (
+          {displayStakes.length === 0 ? (
             <div className="text-center py-4 bg-black/20 rounded-xl border border-white/5 text-xs text-gray-500">
               No active stakes found.
             </div>
           ) : (
             <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-              {activeStakes.map(stake => {
+              {displayStakes.map(stake => {
                 const elapsedDays = (Date.now() - stake.timestamp) / (1000 * 60 * 60 * 24);
                 const days = elapsedDays.toFixed(1);
                 const xpPerDay = Math.floor((stake.amount / 10) * XP_PER_10_HBAR_PER_DAY);
