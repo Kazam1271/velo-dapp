@@ -14,6 +14,8 @@ export type QuoteFailure = "RATE_LIMITED" | "NO_ROUTE";
 export interface QuoteResult {
   amountOut: string;
   fee: number;
+  /** Fraction (0.01 = 1%). Grows with trade size relative to pool depth. */
+  priceImpact?: number;
 }
 
 /**
@@ -49,7 +51,7 @@ export async function getBestSaucerSwapQuoteDetailed(
 
     const data = await response.json();
     if (data?.ok && data.amountOut && data.amountOut !== "0") {
-      return { ok: true, amountOut: data.amountOut, fee: data.fee };
+      return { ok: true, amountOut: data.amountOut, fee: data.fee, priceImpact: data.priceImpact };
     }
     return { ok: false, reason: data?.reason === "NO_ROUTE" ? "NO_ROUTE" : "RATE_LIMITED" };
   } catch (error) {

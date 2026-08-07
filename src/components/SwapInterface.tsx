@@ -17,15 +17,30 @@ const MIRROR_BASE = "https://mainnet-public.mirrornode.hedera.com/api/v1";
  * to return receipts even after the transaction has succeeded on-chain. On
  * timeout, resolve with the submitted hash (the tx was already broadcast).
  */
-async function waitForReceiptWithTimeout(tx: { hash: string; wait: () => Promise<any> }, timeoutMs = 15000): Promise<string> {
+type ReceiptOutcome = { hash: string; status: "success" | "failed" | "unknown" };
+
+async function waitForReceiptWithTimeout(
+  tx: { hash: string; wait: () => Promise<any> },
+  timeoutMs = 15000
+): Promise<ReceiptOutcome> {
   try {
     const receipt = await Promise.race([
       tx.wait(),
       new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs)),
     ]);
-    return (receipt as any)?.hash || tx.hash;
-  } catch {
-    return tx.hash;
+    // Timed out — the tx is broadcast but unconfirmed. NOT a success.
+    if (!receipt) return { hash: tx.hash, status: "unknown" };
+    const r = receipt as any;
+    // status 0 = reverted on-chain. Never report these as success.
+    const reverted = r.status === 0 || r.status === 0n || r.status === false;
+    return { hash: r.hash || tx.hash, status: reverted ? "failed" : "success" };
+  } catch (e: any) {
+    // ethers throws CALL_EXCEPTION when the transaction reverted on-chain.
+    const msg = e?.shortMessage || e?.message || "";
+    if (e?.code === "CALL_EXCEPTION" || /revert|execution reverted/i.test(msg)) {
+      return { hash: e?.receipt?.hash || tx.hash, status: "failed" };
+    }
+    return { hash: tx.hash, status: "unknown" };
   }
 }
 
@@ -114,6 +129,10 @@ export default function SwapInterface() {
   // Why the last quote failed: a genuinely missing pool vs the quote service
   // being rate limited. These must not be reported to the user the same way.
   const [quoteError, setQuoteError] = useState<QuoteFailure | null>(null);
+  // Price impact of the current quote (fraction). Quotes are computed within
+  // the current tick range, so a high value also means the estimate itself is
+  // less reliable — warn before the user commits.
+  const [priceImpact, setPriceImpact] = useState<number | null>(null);
   const [poolFee, setPoolFee] = useState(3000); // best SaucerSwap V2 fee tier for the current pair
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
@@ -177,6 +196,7 @@ export default function SwapInterface() {
   useEffect(() => {
     const amount = parseFloat(payAmount);
     if (!payAmount || isNaN(amount) || amount <= 0) {
+      setPriceImpact(null);
       setReceiveAmount("");
       setPayUsd("0.00");
       setReceiveUsd("0.00");
@@ -228,6 +248,7 @@ export default function SwapInterface() {
 
       if (!quote.ok) {
         setQuoteError(quote.reason);
+        setPriceImpact(null);
         setReceiveAmount("");
         setReceiveUsd("0.00");
         setIsQuoting(false);
@@ -235,6 +256,7 @@ export default function SwapInterface() {
       }
 
       setQuoteError(null);
+      setPriceImpact(typeof quote.priceImpact === "number" ? quote.priceImpact : null);
       setPoolFee(quote.fee);
       const out = parseFloat(ethers.formatUnits(quote.amountOut, decimalsOut));
       setReceiveAmount(out.toFixed(decimalsOut > 6 ? 6 : 4));
@@ -313,7 +335,10 @@ export default function SwapInterface() {
         toast.loading("Approving Token for Swap...", { id: toastId });
         const tokenContract = new ethers.Contract(payToken.evmAddress, CONTRACTS.ERC20ABI, signer);
         const approveTx = await sendWithWalletTimeout(tokenContract.approve(CONTRACTS.VeloMainnetProxy, amountIn));
-        await waitForReceiptWithTimeout(approveTx);
+        const approveOutcome = await waitForReceiptWithTimeout(approveTx);
+        if (approveOutcome.status === "failed") {
+          throw new Error("Token approval reverted on-chain — the swap was not attempted.");
+        }
 
         // Wait until the allowance is actually visible on-chain before sending
         // the swap. Some wallets (HashPack) simulate the next tx immediately
@@ -343,7 +368,7 @@ export default function SwapInterface() {
 
       toast.loading("Executing Swap via Velo Proxy...", { id: toastId });
 
-      let swapTxHash;
+      let swapOutcome: ReceiptOutcome | undefined;
       const proxyContract = new ethers.Contract(CONTRACTS.VeloMainnetProxy, CONTRACTS.ProxyABI, signer);
 
       // We hardcode gasLimit to bypass Hedera's broken eth_estimateGas (returns SENDER_NOT_FOUND).
@@ -351,23 +376,30 @@ export default function SwapInterface() {
       // a 500k limit ran out of gas on the unwrap path (observed 499,708 used),
       // and a HashPack-estimated token->HBAR swap used ~1.62M. Hedera charges at
       // least 80% of the limit, so each path gets the smallest safe ceiling.
-      const GAS_LIMIT = 300000;              // HBAR in: no HTS ops in the proxy itself (proven)
+      // HBAR->WHBAR is a bare wrap (no pool hop) and really does fit in 300k.
+      // HBAR->token additionally wraps AND runs a pool swap through HTS: a real
+      // mainnet HBAR->SAUCE attempt reverted having burned 289,075/300,000 gas,
+      // and eth_estimateGas puts the true cost at ~958k. Don't reuse the wrap
+      // limit for the pool path.
+      const GAS_LIMIT_WRAP = 300000;         // HBAR->WHBAR only: no pool hop (proven)
+      const GAS_LIMIT_HBAR_TO_TOKEN = 1300000; // HBAR->token: wrap + pool swap (~958k measured)
       const GAS_LIMIT_UNWRAP = 1200000;      // WHBAR->HBAR: transferFrom + approvals + WHBAR withdraw
       const GAS_LIMIT_TOKEN_SWAP = 1500000;  // token->token: transferFrom + approvals + pool swap
       const GAS_LIMIT_TOKEN_TO_HBAR = 1800000; // token->HBAR: heaviest — swap + unwrap
 
       if (isNativeHbarIn) {
+        const isBareWrap = recvToken.symbol === "WHBAR";
         const tx = await sendWithWalletTimeout(proxyContract.swapExactHBARForTokens(
           recvToken.evmAddress,
           poolFee,
           minAmountOut,
-          { value: hbarValue, gasLimit: GAS_LIMIT }
+          { value: hbarValue, gasLimit: isBareWrap ? GAS_LIMIT_WRAP : GAS_LIMIT_HBAR_TO_TOKEN }
         ));
-        swapTxHash = await waitForReceiptWithTimeout(tx);
+        swapOutcome = await waitForReceiptWithTimeout(tx);
       } else if (payToken.symbol === "WHBAR" && recvToken.symbol === "HBAR") {
         // 1:1 unwrap through the proxy (approve already done above).
         const tx = await sendWithWalletTimeout(proxyContract.swapExactWHBARForHBAR(amountIn, { gasLimit: GAS_LIMIT_UNWRAP }));
-        swapTxHash = await waitForReceiptWithTimeout(tx);
+        swapOutcome = await waitForReceiptWithTimeout(tx);
       } else if (recvToken.symbol === "HBAR") {
         // Token -> native HBAR: pool swap to WHBAR inside the proxy, then
         // unwrap and deliver HBAR to the user (approve already done above).
@@ -378,7 +410,7 @@ export default function SwapInterface() {
           minAmountOut,
           { gasLimit: GAS_LIMIT_TOKEN_TO_HBAR }
         ));
-        swapTxHash = await waitForReceiptWithTimeout(tx);
+        swapOutcome = await waitForReceiptWithTimeout(tx);
       } else {
         const tx = await sendWithWalletTimeout(proxyContract.swapExactTokensForTokens(
           payToken.evmAddress,
@@ -388,10 +420,49 @@ export default function SwapInterface() {
           minAmountOut,
           { gasLimit: GAS_LIMIT_TOKEN_SWAP }
         ));
-        swapTxHash = await waitForReceiptWithTimeout(tx);
+        swapOutcome = await waitForReceiptWithTimeout(tx);
       }
 
-      reportSuccess(swapTxHash);
+      // Only ever claim success on a CONFIRMED successful receipt. A reverted
+      // swap previously still showed "Swap Complete!" while the user's wallet
+      // showed "Interaction failed" and no tokens arrived.
+      if (!swapOutcome) throw new Error("Swap did not execute.");
+
+      if (swapOutcome.status === "failed") {
+        toast.error("Swap Failed", {
+          id: toastId,
+          description: "The transaction reverted on-chain — no tokens were swapped. Network fees still apply.",
+          action: {
+            label: "View on HashScan",
+            onClick: () => window.open(`https://hashscan.io/mainnet/transaction/${swapOutcome!.hash}`, "_blank"),
+          },
+        });
+        fetchBalances();
+        return;
+      }
+
+      if (swapOutcome.status === "unknown") {
+        // Receipt didn't arrive in time — confirm against the chain instead of guessing.
+        toast.loading("Confirming on-chain...", { id: toastId });
+        const confirmed = address ? await findRecentProxySuccess(address, swapStartedAt) : null;
+        if (confirmed) {
+          reportSuccess(confirmed);
+          return;
+        }
+        toast.info("Swap submitted — confirmation pending", {
+          id: toastId,
+          description: "We couldn't confirm it yet. Check HashScan or your wallet before retrying, so you don't swap twice.",
+          action: {
+            label: "View on HashScan",
+            onClick: () => window.open(`https://hashscan.io/mainnet/transaction/${swapOutcome!.hash}`, "_blank"),
+          },
+        });
+        setPayAmount("");
+        fetchBalances();
+        return;
+      }
+
+      reportSuccess(swapOutcome.hash);
 
     } catch (error: any) {
       console.error("[Swap Error]:", error);
@@ -561,6 +632,29 @@ export default function SwapInterface() {
               <span className="text-gray-500">Routing Path</span>
               <span className="text-white">SaucerSwap V2</span>
             </div>
+            {priceImpact !== null && priceImpact > 0.01 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">Price Impact</span>
+                <span className={priceImpact > 0.05 ? "text-rose-400 font-bold" : "text-amber-400 font-bold"}>
+                  {(priceImpact * 100).toFixed(2)}%
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* High price impact warning — a large trade moves the pool price against
+            the user, and our quote (modelled within the current tick range) also
+            gets less reliable as impact grows. */}
+        {priceImpact !== null && priceImpact > 0.05 && receiveAmount && (
+          <div className={`rounded-2xl p-3 mb-4 border ${priceImpact > 0.15 ? "bg-rose-500/10 border-rose-500/30" : "bg-amber-400/10 border-amber-400/30"}`}>
+            <p className={`text-[11px] leading-relaxed ${priceImpact > 0.15 ? "text-rose-300" : "text-amber-300"}`}>
+              <span className="font-bold">
+                {priceImpact > 0.15 ? "Very high price impact" : "High price impact"} ({(priceImpact * 100).toFixed(1)}%).
+              </span>{" "}
+              This trade is large relative to the pool, so you&apos;ll get a noticeably worse rate
+              {priceImpact > 0.15 ? " and the quote above may overstate what you actually receive" : ""}. Consider swapping a smaller amount.
+            </p>
           </div>
         )}
 
