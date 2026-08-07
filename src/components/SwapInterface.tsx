@@ -4,7 +4,7 @@ import { ArrowUpDown, ChevronDown, TrendingUp, ShieldCheck, Loader2 } from "luci
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Token, ACTIVE_TOKENS } from "@/config/tokens";
 import { CONTRACTS, PROTOCOL_FEE_FACTOR, PROTOCOL_FEE_LABEL } from "@/config/contracts";
-import { getBestSaucerSwapQuote } from "@/lib/saucerswap/quoter";
+import { getBestSaucerSwapQuoteDetailed, type QuoteFailure } from "@/lib/saucerswap/quoter";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import { ethers } from "ethers";
@@ -111,6 +111,9 @@ export default function SwapInterface() {
   
   const [isSwapping, setIsSwapping] = useState(false);
   const [isQuoting, setIsQuoting] = useState(false);
+  // Why the last quote failed: a genuinely missing pool vs the quote service
+  // being rate limited. These must not be reported to the user the same way.
+  const [quoteError, setQuoteError] = useState<QuoteFailure | null>(null);
   const [poolFee, setPoolFee] = useState(3000); // best SaucerSwap V2 fee tier for the current pair
   const [payAmount, setPayAmount] = useState("");
   const [receiveAmount, setReceiveAmount] = useState("");
@@ -214,7 +217,7 @@ export default function SwapInterface() {
       const tokenInId = payToken.symbol === "HBAR" ? "NATIVE" : payToken.tokenId;
       const tokenOutId = recvToken.symbol === "HBAR" ? "NATIVE" : recvToken.tokenId;
 
-      const quote = await getBestSaucerSwapQuote(
+      const quote = await getBestSaucerSwapQuoteDetailed(
         tokenInId,
         tokenOutId,
         amount.toFixed(decimalsIn),
@@ -223,13 +226,15 @@ export default function SwapInterface() {
 
       if (cancelled) return;
 
-      if (!quote) {
+      if (!quote.ok) {
+        setQuoteError(quote.reason);
         setReceiveAmount("");
         setReceiveUsd("0.00");
         setIsQuoting(false);
         return;
       }
 
+      setQuoteError(null);
       setPoolFee(quote.fee);
       const out = parseFloat(ethers.formatUnits(quote.amountOut, decimalsOut));
       setReceiveAmount(out.toFixed(decimalsOut > 6 ? 6 : 4));
@@ -245,7 +250,11 @@ export default function SwapInterface() {
     if (!isConnected || !address || !payAmount || parseFloat(payAmount) <= 0) return;
     if (isQuoting) return;
     if (!receiveAmount || parseFloat(receiveAmount) <= 0) {
-      toast.error("No route available", { description: "No SaucerSwap V2 pool quote for this pair/amount." });
+      if (quoteError === "RATE_LIMITED") {
+        toast.error("Quote unavailable", { description: "The price service is busy right now — wait a moment and try again." });
+      } else {
+        toast.error("No route available", { description: "No SaucerSwap V2 pool quote for this pair/amount." });
+      }
       return;
     }
     setIsSwapping(true);
@@ -583,7 +592,9 @@ export default function SwapInterface() {
                       : isQuoting
                         ? "Fetching best price…"
                         : !receiveAmount
-                          ? "No route available"
+                          ? (quoteError === "RATE_LIMITED"
+                              ? "Quote unavailable — try again"
+                              : "No route available")
                           : `SWAP`
               }
             </button>
