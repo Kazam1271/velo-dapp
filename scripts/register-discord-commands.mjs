@@ -23,6 +23,10 @@ const commands = [
     description: "Show the top Velo XP earners",
   },
   {
+    name: "verify",
+    description: "Link your wallet to earn Discord roles from your real Velo XP",
+  },
+  {
     name: "rank",
     description: "Look up your Velo XP and rank",
     options: [

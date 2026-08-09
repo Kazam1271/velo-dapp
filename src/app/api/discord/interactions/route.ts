@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { verifyKey, InteractionType, InteractionResponseType } from "discord-interactions";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -128,6 +129,59 @@ async function handleRank(walletInput: string) {
   };
 }
 
+/**
+ * Issue a one-time verification link. The code is bound to this Discord user,
+ * expires quickly, and is single-use — see api/discord/verify for why that
+ * matters (it's what stops someone claiming a wallet they don't own).
+ */
+async function handleVerify(interaction: any) {
+  const member = interaction.member || {};
+  const discordId = member.user?.id || interaction.user?.id;
+  const username = member.user?.username || interaction.user?.username || null;
+
+  if (!discordId) {
+    return { content: "Couldn't read your Discord id — try again.", flags: EPHEMERAL };
+  }
+
+  const code = randomUUID().replace(/-/g, "");
+  const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString(); // 15 minutes
+
+  const { error } = await supabaseAdmin.from("discord_verify_nonces").insert({
+    code,
+    discord_id: discordId,
+    discord_username: username,
+    guild_id: interaction.guild_id || null,
+    expires_at: expiresAt,
+  });
+
+  if (error) {
+    console.error("[Discord /verify] nonce insert failed:", error);
+    return { content: "Couldn't start verification right now — try again shortly.", flags: EPHEMERAL };
+  }
+
+  const base = process.env.NEXT_PUBLIC_SITE_URL || "https://veloexchange.org";
+  const url = `${base}/verify?code=${code}`;
+
+  return {
+    embeds: [
+      {
+        title: "\u{1F517} Link your wallet",
+        description: [
+          `**[Click here to verify](${url})**`,
+          "",
+          "You'll connect your wallet and sign a **free message** — this is not a transaction and cannot move your funds.",
+          "",
+          "Your roles are then granted from your real Velo XP.",
+          "",
+          "_This link is personal to you and expires in 15 minutes._",
+        ].join("\n"),
+        color: 0x22d3ee,
+      },
+    ],
+    flags: EPHEMERAL,
+  };
+}
+
 export async function POST(req: Request) {
   const signature = req.headers.get("x-signature-ed25519");
   const timestamp = req.headers.get("x-signature-timestamp");
@@ -160,6 +214,8 @@ export async function POST(req: Request) {
       } else if (name === "rank") {
         const walletOpt = interaction.data?.options?.find((o: any) => o.name === "wallet")?.value;
         data = await handleRank(String(walletOpt || ""));
+      } else if (name === "verify") {
+        data = await handleVerify(interaction);
       } else {
         data = { content: "Unknown command.", flags: EPHEMERAL };
       }
