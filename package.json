@@ -20,6 +20,7 @@
     "@wagmi/core": "^3.5.5",
     "buffer": "^6.0.3",
     "clsx": "^2.1.1",
+    "discord-interactions": "^4.4.0",
     "ethers": "^6.0.0",
     "framer-motion": "^12.38.0",
     "hashconnect": "^3.0.14",
