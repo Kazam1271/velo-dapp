@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { ethers } from "ethers";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { grantRolesForXp } from "@/lib/discord/roles";
+import { buildVerifyMessage } from "@/lib/discord/verifyMessage";
 
 export const dynamic = "force-dynamic";
 
@@ -15,17 +16,6 @@ export const dynamic = "force-dynamic";
  * user. The address is RECOVERED from the signature; it is never trusted from
  * the request body.
  */
-
-/** Message the user signs. Must match the client exactly, byte for byte. */
-export function buildVerifyMessage(code: string): string {
-  return [
-    "Link your wallet to the Velo Discord.",
-    "",
-    "This is a free signature — it is not a transaction and cannot move funds.",
-    "",
-    `Code: ${code}`,
-  ].join("\n");
-}
 
 export async function POST(req: Request) {
   try {

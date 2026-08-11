@@ -15,12 +15,18 @@ export interface RoleTier {
   minXp: number;
 }
 
-/** Keep tiers in sync with the labels used by api/xp/balance and /rank. */
+/**
+ * Velo's Discord-specific XP ladder (branded role names — deliberately
+ * separate from the plainer Novice/Regular/Pro Trader/Whale labels used by
+ * api/xp/balance and /rank, which are a different display, not a role set).
+ * No 0-XP tier needed: first wallet connect already awards 500 XP via
+ * api/xp/onboard, so Spark IS the "you're in" tier in practice.
+ */
 export const ROLE_TIERS: RoleTier[] = [
-  { envVar: "DISCORD_ROLE_VERIFIED", label: "Verified", minXp: 0 },
-  { envVar: "DISCORD_ROLE_REGULAR", label: "Regular", minXp: 1000 },
-  { envVar: "DISCORD_ROLE_PRO", label: "Pro Trader", minXp: 2000 },
-  { envVar: "DISCORD_ROLE_WHALE", label: "Whale", minXp: 5000 },
+  { envVar: "DISCORD_ROLE_SPARK", label: "Spark", minXp: 500 },
+  { envVar: "DISCORD_ROLE_SLIPSTREAM", label: "Slipstream", minXp: 1000 },
+  { envVar: "DISCORD_ROLE_OVERDRIVE", label: "Overdrive", minXp: 2500 },
+  { envVar: "DISCORD_ROLE_ESCAPE_VELOCITY", label: "Escape Velocity", minXp: 5000 },
 ];
 
 /**

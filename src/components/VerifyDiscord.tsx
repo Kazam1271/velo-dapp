@@ -5,17 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { ethers } from "ethers";
 import { CheckCircle2, Loader2, ShieldCheck, XCircle } from "lucide-react";
 import { useAppKitAccount, useAppKit, useAppKitProvider } from "@reown/appkit/react";
-
-/** Must match buildVerifyMessage in api/discord/verify exactly, byte for byte. */
-function buildVerifyMessage(code: string): string {
-  return [
-    "Link your wallet to the Velo Discord.",
-    "",
-    "This is a free signature — it is not a transaction and cannot move funds.",
-    "",
-    `Code: ${code}`,
-  ].join("\n");
-}
+import { buildVerifyMessage } from "@/lib/discord/verifyMessage";
 
 interface Result {
   wallet: string;
