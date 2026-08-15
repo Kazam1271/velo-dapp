@@ -29,9 +29,13 @@ function rankBadge(rank: number) {
   return { icon: <span className="text-sm font-bold">{rank}</span>, cls: "bg-velo-card text-gray-400 border-velo-border" };
 }
 
+/** Rows rendered per "Show more" step — keeps the DOM small on a 1000-row board. */
+const PAGE_SIZE = 100;
+
 export default function LeaderboardPage() {
   const { address } = useAppKitAccount();
   const [rows, setRows] = useState<LeaderRow[]>([]);
+  const [visible, setVisible] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,10 +45,11 @@ export default function LeaderboardPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/xp/leaderboard?limit=100");
+      const res = await fetch("/api/xp/leaderboard?limit=1000");
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Failed to load leaderboard");
       setRows(data.leaderboard || []);
+      setVisible(PAGE_SIZE);
     } catch (e: any) {
       setError(e.message || "Failed to load leaderboard");
     } finally {
@@ -55,6 +60,13 @@ export default function LeaderboardPage() {
   useEffect(() => {
     load();
   }, []);
+
+  const myRank = useMemo(
+    () => (me ? rows.find((r) => r.wallet.toLowerCase() === me)?.rank ?? null : null),
+    [rows, me]
+  );
+
+  const shown = rows.slice(0, visible);
 
   return (
     <div className="w-full flex flex-col gap-5 mt-2">
@@ -103,7 +115,7 @@ export default function LeaderboardPage() {
       {/* List */}
       {rows.length > 0 && (
         <div className="flex flex-col gap-2">
-          {rows.map((row) => {
+          {shown.map((row) => {
             const badge = rankBadge(row.rank);
             const isMe = me && row.wallet.toLowerCase() === me;
             return (
@@ -149,6 +161,27 @@ export default function LeaderboardPage() {
               </motion.div>
             );
           })}
+
+          {visible < rows.length && (
+            <div className="flex flex-col items-center gap-2 pt-2 pb-1">
+              <button
+                onClick={() => setVisible((v) => Math.min(v + PAGE_SIZE, rows.length))}
+                className="px-5 py-2.5 rounded-full bg-velo-card border border-velo-border text-sm font-semibold text-gray-300 hover:text-velo-cyan hover:border-velo-cyan/50 transition-all"
+              >
+                Show more
+              </button>
+              <span className="text-[11px] text-gray-500">
+                Showing {shown.length} of {rows.length}
+                {myRank && myRank > visible ? ` · you're #${myRank}` : ""}
+              </span>
+            </div>
+          )}
+
+          {visible >= rows.length && rows.length > PAGE_SIZE && (
+            <p className="text-center text-[11px] text-gray-500 pt-2 pb-1">
+              Showing all {rows.length} ranked wallets
+            </p>
+          )}
         </div>
       )}
     </div>
