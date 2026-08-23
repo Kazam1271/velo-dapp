@@ -48,6 +48,62 @@ interface ActivityItem {
   asset?: string;
 }
 
+// Avatars render at 112px; 512 keeps them crisp on retina with room to spare.
+const AVATAR_MAX_PX = 512;
+const AVATAR_QUALITY = 0.85;
+
+function toBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+/**
+ * Downscale and re-encode an avatar before it's pinned.
+ *
+ * Phone photos are routinely several MB, and that full-size file then has to
+ * come back down through a public IPFS gateway every time anyone views the
+ * profile — a 3MB avatar measured 5-8s to load, during which the avatar circle
+ * is simply empty. Re-encoding to 512px lands around 30KB instead.
+ *
+ * Returns the original file untouched if anything about the conversion fails
+ * or doesn't actually save bytes — a slow avatar beats a broken one.
+ */
+async function downscaleAvatar(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  if (file.type === "image/gif") return file; // would drop the animation
+
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    return file;
+  }
+
+  try {
+    const scale = Math.min(1, AVATAR_MAX_PX / Math.max(bitmap.width, bitmap.height));
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, w, h);
+
+    let out = await toBlob(canvas, "image/webp", AVATAR_QUALITY);
+    let ext = "webp";
+    if (!out) {
+      out = await toBlob(canvas, "image/jpeg", AVATAR_QUALITY);
+      ext = "jpg";
+    }
+    if (!out || out.size >= file.size) return file;
+
+    return new File([out], `avatar.${ext}`, { type: out.type });
+  } finally {
+    bitmap.close();
+  }
+}
+
 export default function ProfileView() {
   const { address: evmAddress, isConnected } = useAppKitAccount();
   const { hederaAccountId } = useHederaAccount(evmAddress || null);
@@ -59,6 +115,10 @@ export default function ProfileView() {
   
   // Profile Interactivity States
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // The avatar comes from a public IPFS gateway, which can be slow. Track the
+  // actual load so the circle shows a spinner rather than reading as empty.
+  const [avatarLoaded, setAvatarLoaded] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -396,6 +456,11 @@ export default function ProfileView() {
     fetchData();
   }, [accountId]);
 
+  // A new avatar hasn't loaded yet, whatever the previous one did.
+  useEffect(() => {
+    setAvatarLoaded(false);
+  }, [avatarUrl]);
+
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -408,14 +473,20 @@ export default function ProfileView() {
       return;
     }
 
+    let objectUrl: string | null = null;
+    setIsUploadingAvatar(true);
     try {
-      // 1. Create a temporary local preview so the UI feels fast
-      const objectUrl = URL.createObjectURL(file);
+      // 1. Shrink first — see downscaleAvatar. Keeps multi-MB phone photos from
+      //    becoming multi-second loads for everyone who views the profile.
+      const upload = await downscaleAvatar(file);
+
+      // 2. Create a temporary local preview so the UI feels fast
+      objectUrl = URL.createObjectURL(upload);
       setAvatarUrl(objectUrl);
 
-      // 2. Prepare the file for the backend
+      // 3. Prepare the file for the backend
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", upload);
 
       // 3. Send to our Next.js API route
       const res = await fetch("/api/upload", {
@@ -458,6 +529,13 @@ export default function ProfileView() {
       toast.error(`Upload failed: ${error.message}`);
       // Revert if failed
       setAvatarUrl(null);
+    } finally {
+      setIsUploadingAvatar(false);
+      // The preview blob has been replaced by the gateway URL by now (or
+      // reverted); either way it's safe to release.
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      // Let the same file be re-picked if the user retries.
+      e.target.value = "";
     }
   };
 
@@ -485,11 +563,32 @@ export default function ProfileView() {
               {/* Avatar Section */}
               <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
                 <input type="file" accept="image/*" className="hidden" ref={fileInputRef} onChange={handleImageUpload} />
-                <div className="w-28 h-28 rounded-full border-2 border-velo-cyan/30 flex items-center justify-center bg-black/40 backdrop-blur-sm group-hover:border-velo-cyan transition-all duration-300 shadow-[0_0_20px_rgba(6,182,212,0.1)] overflow-hidden">
+                <div className="relative w-28 h-28 rounded-full border-2 border-velo-cyan/30 flex items-center justify-center bg-black/40 backdrop-blur-sm group-hover:border-velo-cyan transition-all duration-300 shadow-[0_0_20px_rgba(6,182,212,0.1)] overflow-hidden">
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                    <img
+                      key={avatarUrl}
+                      src={avatarUrl}
+                      alt="Profile"
+                      className={`w-full h-full object-cover transition-opacity duration-300 ${
+                        avatarLoaded ? "opacity-100" : "opacity-0"
+                      }`}
+                      onLoad={() => setAvatarLoaded(true)}
+                      onError={() => setAvatarLoaded(false)}
+                    />
                   ) : (
                     <User size={48} className="text-velo-cyan/60 group-hover:text-velo-cyan transition-colors" />
+                  )}
+
+                  {/* Gateway fetches can take seconds — never leave the circle blank. */}
+                  {avatarUrl && !avatarLoaded && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                      <Loader2 size={22} className="animate-spin text-velo-cyan/70" />
+                    </div>
+                  )}
+                  {isUploadingAvatar && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+                      <Loader2 size={22} className="animate-spin text-velo-cyan" />
+                    </div>
                   )}
                 </div>
                 <div className="mt-2 text-[10px] font-bold text-gray-500 uppercase tracking-widest group-hover:text-velo-cyan transition-colors">

@@ -139,6 +139,10 @@ export default function LeaderboardPage() {
                     <img
                       src={row.avatarUrl}
                       alt=""
+                      // Avatars come from a public IPFS gateway and can be slow;
+                      // only fetch the ones actually scrolled into view.
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
                     />
